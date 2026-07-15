@@ -142,7 +142,7 @@ const pct1 = n => (n===null||isNaN(n)) ? "—" : (Math.round(n*10)/10).toFixed(1
 const MARKETS = ["TW","US","EU","CRYPTO","OTHER"];
 const INSTR_TYPES = [["stock","個股"],["etf","ETF"],["crypto","加密貨幣"],["other","其他"]];
 const instrKey = (market, symbol) => (market||"").toUpperCase().trim() + ":" + (symbol||"").toUpperCase().trim();
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const SNAPSHOT_KEY = "asset_tracker_snapshot_v1";
 const LASTBK_KEY = "asset_tracker_last_backup_v1";
 let PRIVACY = false; // 隱私模式：遮住所有金額（僅本次開啟有效，不寫入資料檔）
@@ -196,6 +196,7 @@ function deserializeAll(d){
   S.positions = d.positions||[]; S.etf = d.etfConstituents||[]; S.targets = d.targets||[];
   S.fx = d.fxRates||[]; S.snapshots = d.snapshots||[]; S.settings = d.settings || {id:"app", baseCurrency:"TWD", thresholdPct:5};
   S.meta = d.meta || {id:"schema", version:SCHEMA_VERSION};
+  migratePositions();
 }
 async function seedDefaults(){
   const G = (cat,name,so)=>({id:uid(),categoryId:cat,name,sortOrder:so});
@@ -217,6 +218,19 @@ async function seedDefaults(){
   S.fx = [{id:"TWD", rateToBase:1, updatedAt:todayStr()}];
   S.settings = {id:"app", baseCurrency:"TWD", thresholdPct:5};
   S.meta = {id:"schema", version:SCHEMA_VERSION, createdAt:todayStr()};
+}
+
+
+function migratePositions(){
+  for(const p of S.positions){
+    if(Object.prototype.hasOwnProperty.call(p, "avgCost")){
+      if(p.totalCost === undefined || p.totalCost === null){
+        const ac = Number(p.avgCost), q = Number(p.quantity) || 0;
+        p.totalCost = (p.avgCost === null || p.avgCost === "" || isNaN(ac)) ? null : ac * q;
+      }
+      delete p.avgCost;
+    }
+  }
 }
 
 /* ============ 計算 ============ */
@@ -494,7 +508,7 @@ function positionForm(acc, pos){
     fld("類型", sel("itype", INSTR_TYPES, ins?.type || "stock")) +
     fld("計價幣別", inp("icur", ins?.currency || acc.currency, "required maxlength=8 style='text-transform:uppercase'")) +
     fld("數量", inp("quantity", pos?.quantity, "required inputmode='decimal'")) +
-    fld("平均成本（每單位，原幣）", inp("avgCost", pos?.avgCost, "inputmode='decimal'")) +
+    fld("總成本金額（原幣，選填）", inp("totalCost", pos?.totalCost, "inputmode='decimal'")) +
     fld("目前價格（每單位，原幣）", inp("lastPrice", ins?.lastPrice, "required inputmode='decimal'")),
     async d => {
       const q = parseFloat(d.quantity), price = parseFloat(d.lastPrice);
@@ -506,8 +520,9 @@ function positionForm(acc, pos){
         name:d.iname.trim() || d.symbol.toUpperCase().trim(), type:d.itype,
         currency:d.icur.toUpperCase().trim(), lastPrice:price, lastPriceDate:todayStr(), priceSource:"manual"};
       await dbPut("instruments", instrument);
-      const obj = pos ? {...pos, instrumentId:key, quantity:q, avgCost:parseFloat(d.avgCost)||null}
-                      : {id:uid(), accountId:acc.id, instrumentId:key, quantity:q, avgCost:parseFloat(d.avgCost)||null};
+      const tc = (d.totalCost === "" || d.totalCost === undefined) ? null : parseFloat(d.totalCost);
+      const obj = pos ? {...pos, instrumentId:key, quantity:q, totalCost:isNaN(tc)?null:tc}
+                      : {id:uid(), accountId:acc.id, instrumentId:key, quantity:q, totalCost:isNaN(tc)?null:tc};
       await dbPut("positions", obj);
     });
 }
@@ -519,8 +534,8 @@ function vPositions(){
   const rows = S.positions.filter(p => p.accountId === acc.id).map(p => {
     const ins = S.instruments.find(i => i.id === p.instrumentId) || {};
     const mv = (Number(p.quantity)||0) * (Number(ins.lastPrice)||0);
-    const hasCost = p.avgCost !== null && p.avgCost !== undefined && p.avgCost !== "" && !isNaN(Number(p.avgCost));
-    const cost = hasCost ? Number(p.avgCost) * (Number(p.quantity)||0) : null;
+    const hasCost = p.totalCost !== null && p.totalCost !== undefined && p.totalCost !== "" && !isNaN(Number(p.totalCost));
+    const cost = hasCost ? Number(p.totalCost) : null;
     const pl = cost !== null ? mv - cost : null;
     const plPct = (cost !== null && cost > 0) ? pl / cost * 100 : null;
     const plCls = pl === null ? "" : (pl >= 0 ? "pl-up" : "pl-down");
@@ -775,8 +790,8 @@ const IMPORTS = {
     }
   },
   positions: {
-    label:"持倉明細", headers:["帳戶","代號","市場","名稱","類型","數量","平均成本","現價"],
-    sample:['台股持倉,2330,TW,台積電,stock,1000,580,1050', '美股持倉,VOO,US,Vanguard S&P 500,etf,20,380.5,560.2'],
+    label:"持倉明細", headers:["帳戶","代號","市場","名稱","類型","數量","總成本","現價"],
+    sample:['台股持倉,2330,TW,台積電,stock,1000,580000,1050', '美股持倉,VOO,US,Vanguard S&P 500,etf,20,7610,560.2'],
     validate(r){
       const e = {};
       if(!S.accounts.find(a => a.kind === "holding" && a.name === (r["帳戶"]||"").trim())) e["帳戶"] = "找不到同名的持倉型帳戶";
@@ -799,8 +814,8 @@ const IMPORTS = {
         await dbPut("instruments", ins);
         if(!S.instruments.find(i => i.id === key)) S.instruments.push(ins);
         let p = S.positions.find(p => p.accountId === acc.id && p.instrumentId === key);
-        if(p){ p.quantity = num(r["數量"]); p.avgCost = num(r["平均成本"]); await dbPut("positions", p); }
-        else{ p = {id:uid(), accountId:acc.id, instrumentId:key, quantity:num(r["數量"]), avgCost:num(r["平均成本"])}; await dbPut("positions", p); S.positions.push(p); }
+        if(p){ p.quantity = num(r["數量"]); p.totalCost = num(r["總成本"]); await dbPut("positions", p); }
+        else{ p = {id:uid(), accountId:acc.id, instrumentId:key, quantity:num(r["數量"]), totalCost:num(r["總成本"])}; await dbPut("positions", p); S.positions.push(p); }
         n++;
       }
       return n;
