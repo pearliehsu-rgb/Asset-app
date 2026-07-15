@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>個人資產管理</title>
+<style>
+:root{
+  --ink:#1c2733; --ink-soft:#5b6875; --line:#e2e6ea; --bg:#f5f6f8; --card:#ffffff;
+  --accent:#0f6f6a; --accent-soft:#e3f1f0; --danger:#b4421f; --danger-soft:#fbeae3;
+  --pos:#1c7a3d; --warn-bg:#fdf3e0; --warn-ink:#8a5a00;
+  --radius:10px;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html{font-size:16px;}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  background:var(--bg); color:var(--ink); line-height:1.55; padding-bottom:60px;
+}
+.num{font-variant-numeric:tabular-nums;}
+header.app{
+  background:var(--card); border-bottom:1px solid var(--line);
+  padding:14px 18px 0; position:sticky; top:0; z-index:20;
+}
+header.app h1{font-size:1.05rem; font-weight:700; letter-spacing:.04em;}
+header.app .sub{font-size:.75rem; color:var(--ink-soft); margin-top:2px;}
+nav.tabs{display:flex; gap:2px; overflow-x:auto; margin-top:10px; -webkit-overflow-scrolling:touch;}
+nav.tabs button{
+  border:none; background:none; font:inherit; font-size:.85rem; color:var(--ink-soft);
+  padding:8px 12px 10px; cursor:pointer; white-space:nowrap; border-bottom:2px solid transparent;
+}
+nav.tabs button.active{color:var(--accent); border-bottom-color:var(--accent); font-weight:600;}
+nav.tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
+main{max-width:960px; margin:0 auto; padding:16px;}
+.card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin-bottom:14px;}
+.card h2{font-size:.95rem; font-weight:700; margin-bottom:10px;}
+.card h3{font-size:.85rem; font-weight:600; margin:12px 0 6px;}
+.grid4{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
+@media(max-width:640px){.grid4{grid-template-columns:repeat(2,1fr);}}
+.stat{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:12px;}
+.stat .lbl{font-size:.72rem; color:var(--ink-soft); letter-spacing:.05em;}
+.stat .val{font-size:1.15rem; font-weight:700; margin-top:2px;}
+.stat.net .val{color:var(--accent);}
+.stat.debt .val{color:var(--danger);}
+table{width:100%; border-collapse:collapse; font-size:.85rem;}
+th,td{padding:7px 8px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top;}
+th{font-size:.72rem; color:var(--ink-soft); font-weight:600; letter-spacing:.04em;}
+td.r,th.r{text-align:right;}
+tr:last-child td{border-bottom:none;}
+.tbl-wrap{overflow-x:auto;}
+button.btn{
+  font:inherit; font-size:.82rem; border:1px solid var(--line); background:var(--card);
+  color:var(--ink); border-radius:7px; padding:6px 12px; cursor:pointer;
+}
+button.btn:hover{border-color:var(--accent); color:var(--accent);}
+button.btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
+button.btn.primary:hover{opacity:.9; color:#fff;}
+button.btn.danger{color:var(--danger);}
+button.btn.sm{font-size:.74rem; padding:3px 8px;}
+button:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+.row{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+.row.between{justify-content:space-between;}
+.muted{color:var(--ink-soft); font-size:.78rem;}
+.badge{display:inline-block; font-size:.68rem; padding:1px 7px; border-radius:99px; background:var(--accent-soft); color:var(--accent);}
+.badge.red{background:var(--danger-soft); color:var(--danger);}
+.badge.grey{background:#eef0f2; color:var(--ink-soft);}
+.banner{background:var(--warn-bg); color:var(--warn-ink); border:1px solid #ecd9ab; border-radius:var(--radius); padding:10px 12px; font-size:.8rem; margin-bottom:14px;}
+.banner.ok{background:var(--accent-soft); color:var(--accent); border-color:#bcdedd;}
+.tree-group{margin:8px 0 4px; font-weight:600; font-size:.85rem;}
+.tree-acc{display:flex; justify-content:space-between; align-items:center; padding:6px 0 6px 14px; border-bottom:1px dashed var(--line); font-size:.85rem;}
+.gap-pos{color:var(--pos);}
+.gap-neg{color:var(--danger);}
+dialog{
+  border:none; border-radius:12px; padding:0; max-width:480px; width:calc(100% - 32px);
+  box-shadow:0 10px 40px rgba(0,0,0,.18);
+}
+dialog::backdrop{background:rgba(20,28,36,.45);}
+dialog .dlg-head{padding:14px 16px 0; font-weight:700; font-size:.95rem;}
+dialog form{padding:12px 16px 16px;}
+dialog label{display:block; font-size:.75rem; color:var(--ink-soft); margin:10px 0 3px;}
+dialog input,dialog select,dialog textarea{
+  width:100%; font:inherit; font-size:.88rem; padding:7px 9px;
+  border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--ink);
+}
+dialog input:focus,dialog select:focus,dialog textarea:focus{outline:2px solid var(--accent); border-color:var(--accent);}
+dialog .dlg-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:16px;}
+.donut-wrap{display:flex; gap:20px; align-items:center; flex-wrap:wrap;}
+.legend{font-size:.8rem;}
+.legend div{display:flex; align-items:center; gap:6px; margin:3px 0;}
+.legend i{width:10px; height:10px; border-radius:3px; display:inline-block;}
+textarea.paste{width:100%; min-height:110px; font:inherit; font-size:.8rem; border:1px solid var(--line); border-radius:7px; padding:8px;}
+.import-preview{max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:7px; margin-top:10px;}
+.err-cell{background:var(--danger-soft); color:var(--danger);}
+input.inline-num{width:110px; font:inherit; font-size:.84rem; padding:4px 7px; border:1px solid var(--line); border-radius:6px; text-align:right;}
+input.inline-num:focus{outline:2px solid var(--accent);}
+details{margin-top:4px;}
+details summary{cursor:pointer; font-size:.8rem; color:var(--accent);}
+footer.note{max-width:960px; margin:0 auto; padding:0 16px 24px; font-size:.72rem; color:var(--ink-soft);}
+@media (prefers-reduced-motion: reduce){*{transition:none!important; animation:none!important;}}
+
+#saveBtn.dirty{background:var(--danger); border-color:var(--danger); color:#fff; font-weight:600;}
+header.app .toprow{display:flex; justify-content:space-between; align-items:center; gap:10px;}
+
+/* 損益顏色：依台灣慣例 紅漲綠跌 */
+.pl-up{color:var(--danger); font-weight:600;}
+.pl-down{color:var(--pos); font-weight:600;}
+body.privacy input.inline-num{filter:blur(6px);}
+</style>
+</head>
+<body>
+<header class="app">
+  <div class="toprow">
+    <div><h1>個人資產管理</h1>
+    <div class="sub">資料自動儲存於本機，不經任何伺服器</div></div>
+    <span class="row">
+      <button class="btn" id="privBtn" style="display:none">遮住金額</button>
+      <button class="btn" id="saveBtn" style="display:none">儲存變更</button>
+    </span>
+  </div>
+  <nav class="tabs" id="tabs"></nav>
+</header>
+<main id="main"></main>
+<footer class="note">
+  資料自動儲存於此瀏覽器本機。建議每週按「備份」把資料文字存一份到備忘錄，作為唯一可靠的保險。
+</footer>
+<dialog id="dlg">
+  <div class="dlg-head" id="dlgTitle"></div>
+  <form id="dlgForm" method="dialog"></form>
+</dialog>
+<script>
+"use strict";
+/* ============ 基本工具 ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const uid = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : "id-" + Date.now() + "-" + Math.random().toString(36).slice(2));
+const todayStr = () => new Date().toISOString().slice(0,10);
+const fmt0 = new Intl.NumberFormat("zh-TW", {maximumFractionDigits:0});
+const fmt2 = new Intl.NumberFormat("zh-TW", {maximumFractionDigits:2});
+const fmtN = (n, d) => PRIVACY ? "＊＊＊" : ((n===null||n===undefined||isNaN(n)) ? "—" : (d===2?fmt2:fmt0).format(n));
+const pct1 = n => (n===null||isNaN(n)) ? "—" : (Math.round(n*10)/10).toFixed(1) + "%";
+
+const MARKETS = ["TW","US","EU","CRYPTO","OTHER"];
+const INSTR_TYPES = [["stock","個股"],["etf","ETF"],["crypto","加密貨幣"],["other","其他"]];
+const instrKey = (market, symbol) => (market||"").toUpperCase().trim() + ":" + (symbol||"").toUpperCase().trim();
+const SCHEMA_VERSION = 1;
+const SNAPSHOT_KEY = "asset_tracker_snapshot_v1";
+const LASTBK_KEY = "asset_tracker_last_backup_v1";
+let PRIVACY = false; // 隱私模式：遮住所有金額（僅本次開啟有效，不寫入資料檔）
+
+/* ============ 記憶體資料層（檔案為主，localStorage 僅作未儲存變更的臨時快取） ============ */
+const S = {groups:[], accounts:[], instruments:[], positions:[], etf:[], targets:[], fx:[], snapshots:[],
+           settings:null, meta:null, dirty:false, started:false, loadedFileName:null, persisted:null};
+const STORE_MAP = {groups:"groups", accounts:"accounts", instruments:"instruments",
+  positions:"positions", etfConstituents:"etf", targets:"targets", fxRates:"fx"};
+const STORES = Object.keys(STORE_MAP).concat(["settings","meta"]);
+
+function markDirty(){
+  S.dirty = true; updateSaveUI();
+  try{ localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(serializeAll())); }catch(e){ /* 快取失敗不影響主流程 */ }
+}
+async function dbPut(store, obj){
+  if(store === "settings") S.settings = obj;
+  else if(store === "meta") S.meta = obj;
+  else{
+    const arr = S[STORE_MAP[store]];
+    const i = arr.findIndex(x => x.id === obj.id);
+    if(i >= 0) arr[i] = obj; else arr.push(obj);
+  }
+  markDirty();
+}
+async function dbPutMany(store, objs){ for(const o of objs){ await dbPut(store, o); } }
+async function dbDelete(store, id){
+  const key = STORE_MAP[store];
+  if(key) S[key] = S[key].filter(x => x.id !== id);
+  markDirty();
+}
+async function dbClear(store){
+  if(store === "settings") S.settings = null;
+  else if(store === "meta") S.meta = null;
+  else S[STORE_MAP[store]] = [];
+  markDirty();
+}
+async function loadAll(){
+  S.groups.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+  S.accounts.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
+}
+function serializeAll(){
+  return {schema_version:SCHEMA_VERSION, saved_at:new Date().toISOString(),
+    groups:S.groups, accounts:S.accounts, instruments:S.instruments, positions:S.positions,
+    etfConstituents:S.etf, targets:S.targets, fxRates:S.fx, snapshots:S.snapshots, settings:S.settings, meta:S.meta};
+}
+function deserializeAll(d){
+  if(!d || !d.schema_version || !Array.isArray(d.accounts)) throw new Error("檔案格式不符（不是本 App 的資料檔）");
+  if(d.schema_version > SCHEMA_VERSION) throw new Error("此資料檔來自較新版本的 App");
+  S.groups = d.groups||[]; S.accounts = d.accounts||[]; S.instruments = d.instruments||[];
+  S.positions = d.positions||[]; S.etf = d.etfConstituents||[]; S.targets = d.targets||[];
+  S.fx = d.fxRates||[]; S.snapshots = d.snapshots||[]; S.settings = d.settings || {id:"app", baseCurrency:"TWD", thresholdPct:5};
+  S.meta = d.meta || {id:"schema", version:SCHEMA_VERSION};
+}
+async function seedDefaults(){
+  const G = (cat,name,so)=>({id:uid(),categoryId:cat,name,sortOrder:so});
+  const g = {
+    longDebt:G("liability","長期負債",1), shortDebt:G("liability","短期負債",2),
+    cash:G("equity","現金",10), stock:G("equity","股票",11), estate:G("equity","房地產",12),
+    insure:G("equity","保單價值",13), cryptoG:G("equity","虛擬貨幣",14), otherInv:G("equity","其他投資",15)
+  };
+  const A = (gid,name,cur,kind,so)=>({id:uid(),groupId:gid,name,currency:cur,kind,balance:0,note:"",sortOrder:so});
+  S.groups = Object.values(g);
+  S.accounts = [
+    A(g.longDebt.id,"房貸","TWD","balance",1),
+    A(g.shortDebt.id,"信用卡費","TWD","balance",1),
+    A(g.cash.id,"生活費","TWD","balance",1), A(g.cash.id,"房貸準備金","TWD","balance",2),
+    A(g.stock.id,"台股現金","TWD","balance",1), A(g.stock.id,"台股持倉","TWD","holding",2),
+    A(g.stock.id,"美股現金","USD","balance",3), A(g.stock.id,"美股持倉","USD","holding",4),
+    A(g.stock.id,"歐股現金","EUR","balance",5), A(g.stock.id,"歐股持倉","EUR","holding",6)];
+  S.instruments = []; S.positions = []; S.etf = []; S.targets = []; S.snapshots = [];
+  S.fx = [{id:"TWD", rateToBase:1, updatedAt:todayStr()}];
+  S.settings = {id:"app", baseCurrency:"TWD", thresholdPct:5};
+  S.meta = {id:"schema", version:SCHEMA_VERSION, createdAt:todayStr()};
+}
+
+/* ============ 計算 ============ */
+function fxRate(code){
+  if(!code) return null;
+  if(code === S.settings.baseCurrency) return 1;
+  const r = S.fx.find(f => f.id === code);
+  return (r && isFinite(r.rateToBase) && r.rateToBase > 0) ? r.rateToBase : null;
+}
+function toBase(amount, code, missing){
+  if(!amount) return 0; // 金額為 0 無需換匯，不觸發缺匯率警告
+  const r = fxRate(code);
+  if(r === null){ if(missing) missing.add(code); return 0; }
+  return amount * r;
+}
+function accountBase(acc, missing){
+  if(acc.kind === "balance") return toBase(Number(acc.balance)||0, acc.currency, missing);
+  let sum = 0;
+  for(const p of S.positions.filter(p => p.accountId === acc.id)){
+    const ins = S.instruments.find(i => i.id === p.instrumentId);
+    if(!ins) continue;
+    const v = (Number(p.quantity)||0) * (Number(ins.lastPrice)||0);
+    sum += toBase(v, ins.currency, missing);
+  }
+  return sum;
+}
+function totals(){
+  const missing = new Set();
+  let debt = 0, equity = 0;
+  const groupTotals = {};
+  for(const g of S.groups){
+    let gt = 0;
+    for(const a of S.accounts.filter(a => a.groupId === g.id)) gt += accountBase(a, missing);
+    groupTotals[g.id] = gt;
+    if(g.categoryId === "liability") debt += gt; else equity += gt;
+  }
+  return {debt, equity, totalAssets:equity, netWorth:equity - debt, groupTotals, missing};
+}
+function exposures(){
+  const missing = new Set();
+  const map = new Map();
+  const add = (key, name, market, symbol, value, src) => {
+    if(!map.has(key)) map.set(key, {key, name, market, symbol, value:0, sources:[]});
+    const e = map.get(key); e.value += value; e.sources.push(src);
+    if(name && (!e.name || e.name === e.symbol)) e.name = name;
+  };
+  for(const acc of S.accounts.filter(a => a.kind === "holding")){
+    for(const p of S.positions.filter(p => p.accountId === acc.id)){
+      const ins = S.instruments.find(i => i.id === p.instrumentId);
+      if(!ins) continue;
+      const vBase = toBase((Number(p.quantity)||0) * (Number(ins.lastPrice)||0), ins.currency, missing);
+      if(vBase === 0) continue;
+      if(ins.type === "etf"){
+        const cons = S.etf.filter(c => c.etfInstrumentId === ins.id);
+        if(cons.length === 0){
+          add(ins.id, ins.name + "（ETF，未載入成分）", ins.market, ins.symbol, vBase, {via:acc.name, note:"ETF整檔"});
+        }else{
+          let wsum = 0;
+          for(const c of cons){
+            const w = Number(c.weightPct)||0; wsum += w;
+            const k = instrKey(c.underlyingMarket || ins.market, c.underlyingSymbol);
+            add(k, c.underlyingName || c.underlyingSymbol, c.underlyingMarket || ins.market, c.underlyingSymbol,
+                vBase * w / 100, {via:acc.name + " › " + ins.symbol, note:pct1(w)});
+          }
+          const resid = 100 - wsum;
+          if(resid > 0.01) add("RESIDUAL", "其他／現金殘差（ETF成分未涵蓋）", "-", "-", vBase * resid / 100, {via:ins.symbol, note:pct1(resid)});
+        }
+      }else{
+        add(instrKey(ins.market, ins.symbol), ins.name, ins.market, ins.symbol, vBase, {via:acc.name, note:"直接持有"});
+      }
+    }
+  }
+  const list = [...map.values()].sort((a,b) => b.value - a.value);
+  const denom = list.reduce((s,e) => s + e.value, 0);
+  return {list, denom, missing};
+}
+/* ============ 通用 Modal 表單 ============ */
+const dlg = () => $("#dlg");
+function openForm(title, fieldsHTML, onSubmit, submitLabel){
+  $("#dlgTitle").textContent = title;
+  const f = $("#dlgForm");
+  f.innerHTML = fieldsHTML + `
+    <div class="dlg-actions">
+      <button type="button" class="btn" id="dlgCancel">取消</button>
+      <button type="submit" class="btn primary">${esc(submitLabel||"儲存")}</button>
+    </div>`;
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(f).entries());
+    const err = await onSubmit(data);
+    if(err){ alert(err); return; }
+    dlg().close(); await refresh();
+  };
+  $("#dlgCancel").onclick = () => dlg().close();
+  dlg().showModal();
+}
+const fld = (label, inner) => `<label>${esc(label)}</label>${inner}`;
+const inp = (name, val, attrs) => `<input name="${name}" value="${esc(val ?? "")}" ${attrs||""}>`;
+const sel = (name, options, cur) => `<select name="${name}">` +
+  options.map(([v,l]) => `<option value="${esc(v)}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("") + `</select>`;
+
+/* ============ 分頁 ============ */
+const TABS = [
+  ["overview","總覽"],["accounts","帳戶"],["positions","持倉"],["exposure","曝險"],
+  ["alloc","配置"],["etf","ETF成分"],["fx","匯率"],["import","匯入"],["settings","設定"]
+];
+let currentTab = "overview";
+function renderTabs(){
+  $("#tabs").innerHTML = TABS.map(([id,l]) =>
+    `<button data-tab="${id}" class="${id===currentTab?"active":""}">${l}</button>`).join("");
+  $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => { currentTab = b.dataset.tab; refresh(); });
+}
+async function refresh(){
+  if(!S.started){ renderStart(); return; }
+  await loadAll(); renderTabs(); updateSaveUI(); VIEWS[currentTab]();
+}
+function updateSaveUI(){
+  const pb = $("#privBtn"); if(pb) pb.style.display = S.started ? "" : "none";
+  const b = $("#saveBtn"); if(!b) return;
+  b.style.display = S.started ? "" : "none";
+  if(S.dirty){ b.textContent = "● 備份（有新變更）"; b.classList.add("dirty"); }
+  else{ b.textContent = "備份"; b.classList.remove("dirty"); }
+}
+
+function missingBanner(missing){
+  if(!missing || missing.size === 0) return "";
+  return `<div class="banner">⚠ 以下幣別尚未設定匯率，相關金額<strong>未計入</strong>加總：${[...missing].map(esc).join("、")}。請至「匯率」頁設定。</div>`;
+}
+
+/* ============ 總覽 ============ */
+function backupBanner(){
+  let last = null;
+  try{ last = localStorage.getItem(LASTBK_KEY); }catch(e){}
+  if(!last) return `<div class="banner">資料會自動存在此瀏覽器，但尚未備份過。建議按右上角「備份」，把文字存一份到備忘錄（鎖定筆記）。</div>`;
+  const days = Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
+  if(days >= 7) return `<div class="banner">距上次備份已 ${days} 天。瀏覽器資料有被系統清除的可能，建議按右上角「備份」更新。</div>`;
+  return "";
+}
+
+/* 淨值歷史卡（資料來源：每次儲存資料檔時記錄的快照） */
+function netHistoryCard(){
+  const snaps = [...(S.snapshots||[])].sort((a,b) => a.date < b.date ? -1 : 1);
+  if(snaps.length < 2) return `<div class="card"><h2>淨值歷史</h2>
+    <div class="muted">每次按「儲存變更」會記錄當日淨值（同日覆蓋、匯率不齊時跳過）。累積 2 筆以上即顯示曲線，目前 ${snaps.length} 筆。</div></div>`;
+  const vs = snaps.map(x => x.net);
+  const min = Math.min(...vs), max = Math.max(...vs), span = (max - min) || 1;
+  const W = 320, H = 110, P = 10;
+  const xs = snaps.map((x,i) => P + i * (W - 2*P) / (snaps.length - 1));
+  const ys = vs.map(v => H - P - (v - min) * (H - 2*P) / span);
+  const pts = xs.map((x,i) => x.toFixed(1) + "," + ys[i].toFixed(1)).join(" ");
+  return `<div class="card"><h2>淨值歷史（${esc(S.settings.baseCurrency)}）</h2>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:560px;display:block" role="img" aria-label="淨值歷史曲線">
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      ${xs.map((x,i) => `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.5" fill="var(--accent)"><title>${esc(snaps[i].date)}：${fmtN(vs[i])}</title></circle>`).join("")}
+    </svg>
+    <div class="row between muted num"><span>${esc(snaps[0].date)}</span><span>${esc(snaps[snaps.length-1].date)}</span></div>
+    <div class="row between muted num"><span>最低 ${fmtN(min)}</span><span>最新 ${fmtN(vs[vs.length-1])}</span><span>最高 ${fmtN(max)}</span></div></div>`;
+}
+
+function vOverview(){
+  const t = totals();
+  const base = S.settings.baseCurrency;
+  const eqGroups = S.groups.filter(g => g.categoryId === "equity" && (t.groupTotals[g.id]||0) > 0);
+  const palette = ["#0f6f6a","#3b7dd8","#c58a1e","#8459b3","#b4421f","#5a8a4a","#7a7f87","#c04f7c"];
+  let donut = "", legend = "";
+  const eqSum = eqGroups.reduce((s,g) => s + t.groupTotals[g.id], 0);
+  if(eqSum > 0){
+    let angle = -90;
+    const arcs = eqGroups.map((g,i) => {
+      const frac = t.groupTotals[g.id] / eqSum;
+      const a0 = angle, a1 = angle + frac * 360; angle = a1;
+      const large = (a1 - a0) > 180 ? 1 : 0;
+      const p = a => [60 + 46 * Math.cos(a * Math.PI/180), 60 + 46 * Math.sin(a * Math.PI/180)];
+      const [x0,y0] = p(a0), [x1,y1] = p(a1 - 0.0001);
+      return `<path d="M ${x0} ${y0} A 46 46 0 ${large} 1 ${x1} ${y1}" fill="none" stroke="${palette[i%palette.length]}" stroke-width="16"/>`;
+    }).join("");
+    donut = `<svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="權益組成圓餅圖">${arcs}</svg>`;
+    legend = `<div class="legend">` + eqGroups.map((g,i) =>
+      `<div><i style="background:${palette[i%palette.length]}"></i>${esc(g.name)}
+       <span class="muted num">${fmtN(t.groupTotals[g.id])}（${pct1(t.groupTotals[g.id]/eqSum*100)}）</span></div>`).join("") + `</div>`;
+  }
+  $("#main").innerHTML = backupBanner() + missingBanner(t.missing) + `
+    <div class="grid4" style="margin-bottom:14px">
+      <div class="stat debt"><div class="lbl">負債（${esc(base)}）</div><div class="val num">${fmtN(t.debt)}</div></div>
+      <div class="stat"><div class="lbl">權益（${esc(base)}）</div><div class="val num">${fmtN(t.equity)}</div></div>
+      <div class="stat"><div class="lbl">總資產（${esc(base)}）</div><div class="val num">${fmtN(t.totalAssets)}</div></div>
+      <div class="stat net"><div class="lbl">淨資產（${esc(base)}）</div><div class="val num">${fmtN(t.netWorth)}</div></div>
+    </div>
+    ${netHistoryCard()}
+    <div class="card"><h2>權益組成</h2>
+      ${eqSum > 0 ? `<div class="donut-wrap">${donut}${legend}</div>` : `<div class="muted">尚無資料。到「帳戶」頁輸入金額，或到「匯入」頁整批匯入。</div>`}
+    </div>
+    <div class="card"><h2>各群組小計（${esc(base)}）</h2><div class="tbl-wrap"><table>
+      <tr><th>類別</th><th>群組</th><th class="r">小計</th></tr>
+      ${S.groups.map(g => `<tr><td>${g.categoryId==="liability"?"負債":"權益"}</td><td>${esc(g.name)}</td><td class="r num">${fmtN(t.groupTotals[g.id])}</td></tr>`).join("")}
+    </table></div></div>`;
+}
+
+/* ============ 帳戶 ============ */
+function accountForm(acc){
+  const groups = S.groups.map(g => [g.id, (g.categoryId==="liability"?"負債｜":"權益｜") + g.name]);
+  openForm(acc ? "編輯帳戶" : "新增帳戶",
+    fld("所屬群組", sel("groupId", groups, acc?.groupId)) +
+    fld("帳戶名稱", inp("name", acc?.name, "required")) +
+    fld("幣別（ISO 代碼，如 TWD/USD/EUR）", inp("currency", acc?.currency || "TWD", "required maxlength=8 style='text-transform:uppercase'")) +
+    fld("帳戶型態", sel("kind", [["balance","金額型（直接輸入餘額）"],["holding","持倉型（記個股/ETF明細）"]], acc?.kind || "balance")) +
+    fld("備註", inp("note", acc?.note)),
+    async d => {
+      d.currency = d.currency.toUpperCase().trim();
+      if(!d.name.trim()) return "名稱不可空白";
+      const obj = acc ? {...acc, ...d} : {id:uid(), balance:0, sortOrder:Date.now()%100000, ...d};
+      await dbPut("accounts", obj);
+    });
+}
+function groupForm(){
+  openForm("新增群組",
+    fld("所屬類別", sel("categoryId", [["equity","權益"],["liability","負債"]], "equity")) +
+    fld("群組名稱", inp("name", "", "required")),
+    async d => {
+      if(!d.name.trim()) return "名稱不可空白";
+      await dbPut("groups", {id:uid(), categoryId:d.categoryId, name:d.name.trim(), sortOrder:Date.now()%100000});
+    });
+}
+function vAccounts(){
+  const t = totals();
+  const cats = [["liability","負債"],["equity","權益"]];
+  let html = missingBanner(t.missing) + `<div class="row between" style="margin-bottom:10px">
+    <span class="muted">金額型帳戶可直接在列上修改餘額（原幣計價）</span>
+    <span class="row"><button class="btn" id="addGroup">＋群組</button><button class="btn primary" id="addAcc">＋帳戶</button></span></div>`;
+  for(const [cid, cname] of cats){
+    html += `<div class="card"><h2>${cname}</h2>`;
+    for(const g of S.groups.filter(g => g.categoryId === cid)){
+      html += `<div class="tree-group">${esc(g.name)} <span class="muted num">小計 ${fmtN(t.groupTotals[g.id])} ${esc(S.settings.baseCurrency)}</span></div>`;
+      const accs = S.accounts.filter(a => a.groupId === g.id);
+      if(accs.length === 0) html += `<div class="muted" style="padding-left:14px">（無帳戶）</div>`;
+      for(const a of accs){
+        const editable = a.kind === "balance"
+          ? `<input class="inline-num num" data-bal="${a.id}" value="${Number(a.balance)||0}" inputmode="decimal">`
+          : `<span class="num muted">市值 ${fmtN(accountBase(a, new Set()))} ${esc(S.settings.baseCurrency)}</span>`;
+        html += `<div class="tree-acc"><span>${esc(a.name)}
+            <span class="badge grey">${esc(a.currency)}</span>${a.kind==="holding"?'<span class="badge">持倉</span>':""}</span>
+          <span class="row">${editable}
+            <button class="btn sm" data-edit="${a.id}">編輯</button>
+            <button class="btn sm danger" data-del="${a.id}">刪除</button></span></div>`;
+      }
+    }
+    html += `</div>`;
+  }
+  $("#main").innerHTML = html;
+  $("#addAcc").onclick = () => accountForm(null);
+  $("#addGroup").onclick = () => groupForm();
+  document.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => accountForm(S.accounts.find(a => a.id === b.dataset.edit)));
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const a = S.accounts.find(x => x.id === b.dataset.del);
+    const posN = S.positions.filter(p => p.accountId === a.id).length;
+    if(!confirm(`確定刪除帳戶「${a.name}」？${posN ? "其下 " + posN + " 筆持倉將一併刪除。" : ""}`)) return;
+    for(const p of S.positions.filter(p => p.accountId === a.id)) await dbDelete("positions", p.id);
+    await dbDelete("accounts", a.id); await refresh();
+  });
+  document.querySelectorAll("[data-bal]").forEach(i => i.onchange = async () => {
+    const a = S.accounts.find(x => x.id === i.dataset.bal);
+    const v = parseFloat(String(i.value).replace(/,/g,""));
+    if(isNaN(v)){ alert("請輸入數字"); return; }
+    a.balance = v; await dbPut("accounts", a); await refresh();
+  });
+}
+/* ============ 持倉 ============ */
+let posAccSel = null;
+function positionForm(acc, pos){
+  const ins = pos ? S.instruments.find(i => i.id === pos.instrumentId) : null;
+  openForm(pos ? "編輯持倉" : "新增持倉",
+    fld("代號（如 2330 / VOO / BTC）", inp("symbol", ins?.symbol, "required style='text-transform:uppercase'")) +
+    fld("市場", sel("market", MARKETS.map(m=>[m,m]), ins?.market || (acc.currency==="USD"?"US":acc.currency==="EUR"?"EU":"TW"))) +
+    fld("名稱", inp("iname", ins?.name)) +
+    fld("類型", sel("itype", INSTR_TYPES, ins?.type || "stock")) +
+    fld("計價幣別", inp("icur", ins?.currency || acc.currency, "required maxlength=8 style='text-transform:uppercase'")) +
+    fld("數量", inp("quantity", pos?.quantity, "required inputmode='decimal'")) +
+    fld("平均成本（每單位，原幣）", inp("avgCost", pos?.avgCost, "inputmode='decimal'")) +
+    fld("目前價格（每單位，原幣）", inp("lastPrice", ins?.lastPrice, "required inputmode='decimal'")),
+    async d => {
+      const q = parseFloat(d.quantity), price = parseFloat(d.lastPrice);
+      if(isNaN(q) || isNaN(price)) return "數量與價格需為數字";
+      const key = instrKey(d.market, d.symbol);
+      if(!d.symbol.trim()) return "代號不可空白";
+      let instrument = S.instruments.find(i => i.id === key);
+      instrument = {...(instrument||{}), id:key, symbol:d.symbol.toUpperCase().trim(), market:d.market,
+        name:d.iname.trim() || d.symbol.toUpperCase().trim(), type:d.itype,
+        currency:d.icur.toUpperCase().trim(), lastPrice:price, lastPriceDate:todayStr(), priceSource:"manual"};
+      await dbPut("instruments", instrument);
+      const obj = pos ? {...pos, instrumentId:key, quantity:q, avgCost:parseFloat(d.avgCost)||null}
+                      : {id:uid(), accountId:acc.id, instrumentId:key, quantity:q, avgCost:parseFloat(d.avgCost)||null};
+      await dbPut("positions", obj);
+    });
+}
+function vPositions(){
+  const hAccs = S.accounts.filter(a => a.kind === "holding");
+  if(hAccs.length === 0){ $("#main").innerHTML = `<div class="card muted">尚無持倉型帳戶。到「帳戶」頁新增，型態選「持倉型」。</div>`; return; }
+  if(!posAccSel || !hAccs.find(a => a.id === posAccSel)) posAccSel = hAccs[0].id;
+  const acc = hAccs.find(a => a.id === posAccSel);
+  const rows = S.positions.filter(p => p.accountId === acc.id).map(p => {
+    const ins = S.instruments.find(i => i.id === p.instrumentId) || {};
+    const mv = (Number(p.quantity)||0) * (Number(ins.lastPrice)||0);
+    const hasCost = p.avgCost !== null && p.avgCost !== undefined && p.avgCost !== "" && !isNaN(Number(p.avgCost));
+    const cost = hasCost ? Number(p.avgCost) * (Number(p.quantity)||0) : null;
+    const pl = cost !== null ? mv - cost : null;
+    const plPct = (cost !== null && cost > 0) ? pl / cost * 100 : null;
+    const plCls = pl === null ? "" : (pl >= 0 ? "pl-up" : "pl-down");
+    return `<tr><td>${esc(ins.symbol)} <span class="badge grey">${esc(ins.market)}</span>${ins.type==="etf"?' <span class="badge">ETF</span>':""}</td>
+      <td>${esc(ins.name)}</td><td class="r num">${fmtN(p.quantity,2)}</td>
+      <td class="r num">${fmtN(ins.lastPrice,2)}<div class="muted">${esc(ins.lastPriceDate||"")}</div></td>
+      <td class="r num">${fmtN(mv,2)} ${esc(ins.currency)}</td>
+      <td class="r num ${plCls}">${pl === null ? "—" : (pl >= 0 ? "+" : "") + fmtN(pl,2)}
+        <div style="font-size:.72rem">${plPct === null ? "" : (PRIVACY ? "" : (plPct >= 0 ? "+" : "") + pct1(plPct))}</div></td>
+      <td class="r"><button class="btn sm" data-pedit="${p.id}">編輯</button>
+      <button class="btn sm danger" data-pdel="${p.id}">刪除</button></td></tr>`;
+  }).join("");
+  $("#main").innerHTML = `
+    <div class="row between" style="margin-bottom:10px">
+      <select id="posAcc" style="font:inherit;font-size:.85rem;padding:6px 9px;border:1px solid var(--line);border-radius:7px">
+        ${hAccs.map(a => `<option value="${a.id}" ${a.id===posAccSel?"selected":""}>${esc(a.name)}（${esc(a.currency)}）</option>`).join("")}
+      </select>
+      <button class="btn primary" id="addPos">＋新增持倉</button></div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <tr><th>代號</th><th>名稱</th><th class="r">數量</th><th class="r">價格</th><th class="r">市值（原幣）</th><th class="r">損益（原幣）</th><th></th></tr>
+      ${rows || `<tr><td colspan="7" class="muted">此帳戶尚無持倉。可按「＋新增持倉」，或到「匯入」頁整批匯入。</td></tr>`}
+    </table></div></div>
+    <div class="muted">價格為手動輸入（MVP）。同一檔標的（市場＋代號）在所有帳戶共用同一個價格。</div>`;
+  $("#posAcc").onchange = e => { posAccSel = e.target.value; refresh(); };
+  $("#addPos").onclick = () => positionForm(acc, null);
+  document.querySelectorAll("[data-pedit]").forEach(b => b.onclick = () => positionForm(acc, S.positions.find(p => p.id === b.dataset.pedit)));
+  document.querySelectorAll("[data-pdel]").forEach(b => b.onclick = async () => {
+    if(confirm("確定刪除此持倉？")){ await dbDelete("positions", b.dataset.pdel); await refresh(); }
+  });
+}
+
+/* ============ 曝險 ============ */
+function vExposure(){
+  const ex = exposures();
+  const rows = ex.list.map(e => `
+    <tr><td>${esc(e.symbol)} <span class="badge grey">${esc(e.market)}</span></td>
+      <td>${esc(e.name)}<details><summary>來源 ${e.sources.length} 筆</summary>
+        ${e.sources.map(s => `<div class="muted">${esc(s.via)}（${esc(s.note)}）</div>`).join("")}</details></td>
+      <td class="r num">${fmtN(e.value)}</td>
+      <td class="r num">${pct1(ex.denom > 0 ? e.value/ex.denom*100 : null)}</td></tr>`).join("");
+  $("#main").innerHTML = missingBanner(ex.missing) + `
+    <div class="card"><h2>個股曝險（look-through，${esc(S.settings.baseCurrency)}）</h2>
+    <div class="muted" style="margin-bottom:8px">直接持股＋透過ETF間接持有的合計。ETF成分未涵蓋的權重歸入「其他／現金殘差」。</div>
+    <div class="tbl-wrap"><table>
+      <tr><th>代號</th><th>名稱／來源</th><th class="r">曝險金額</th><th class="r">占比</th></tr>
+      ${rows || `<tr><td colspan="4" class="muted">尚無持倉資料。</td></tr>`}
+      ${ex.denom > 0 ? `<tr><td colspan="2"><strong>合計</strong></td><td class="r num"><strong>${fmtN(ex.denom)}</strong></td><td class="r num">100.0%</td></tr>` : ""}
+    </table></div></div>`;
+}
+
+/* ============ 配置（目標 vs 實際） ============ */
+function targetForm(t){
+  openForm(t ? "編輯目標配置" : "新增目標配置",
+    fld("代號", inp("symbol", t?.symbol, "required style='text-transform:uppercase'" + (t?"disabled":""))) +
+    fld("市場", t ? `<input value="${esc(t.market)}" disabled>` : sel("market", MARKETS.map(m=>[m,m]), "TW")) +
+    fld("目標 %（0–100）", inp("targetPct", t?.targetPct, "required inputmode='decimal'")) +
+    fld("備註", inp("note", t?.note)),
+    async d => {
+      const p = parseFloat(d.targetPct);
+      if(isNaN(p) || p < 0 || p > 100) return "目標 % 需為 0–100 的數字";
+      if(t) await dbPut("targets", {...t, targetPct:p, note:d.note});
+      else{
+        if(!d.symbol.trim()) return "代號不可空白";
+        const key = instrKey(d.market, d.symbol);
+        await dbPut("targets", {id:key, symbol:d.symbol.toUpperCase().trim(), market:d.market, targetPct:p, note:d.note, updatedAt:todayStr()});
+      }
+    });
+}
+function vAlloc(){
+  const ex = exposures();
+  const th = Number(S.settings.thresholdPct) || 5;
+  const keys = new Set([...S.targets.map(t => t.id), ...ex.list.filter(e => e.key !== "RESIDUAL").map(e => e.key)]);
+  const rows = [...keys].map(k => {
+    const t = S.targets.find(x => x.id === k);
+    const e = ex.list.find(x => x.key === k);
+    const actual = ex.denom > 0 ? (e ? e.value/ex.denom*100 : 0) : null;
+    const target = t ? Number(t.targetPct) : null;
+    const gap = (actual !== null && target !== null) ? actual - target : null;
+    const flag = gap !== null && Math.abs(gap) > th;
+    const suggest = gap !== null ? -gap/100 * ex.denom : null;
+    return {k, t, e, sym:(t?.symbol || e?.symbol), mkt:(t?.market || e?.market), name:e?.name || t?.note || "", actual, target, gap, flag, suggest};
+  }).sort((a,b) => Math.abs(b.gap ?? 0) - Math.abs(a.gap ?? 0));
+  const tSum = S.targets.reduce((s,t) => s + (Number(t.targetPct)||0), 0);
+  $("#main").innerHTML = missingBanner(ex.missing) + `
+    <div class="row between" style="margin-bottom:10px">
+      <span class="muted">提醒門檻：±${th}%（可於「設定」調整）｜目標合計：<span class="num">${pct1(tSum)}</span>${Math.abs(tSum-100) > 0.01 ? ' <span class="badge red">未等於100%</span>' : ""}</span>
+      <button class="btn primary" id="addTarget">＋目標</button></div>
+    <div class="card"><div class="tbl-wrap"><table>
+      <tr><th>代號</th><th class="r">目標%</th><th class="r">實際%</th><th class="r">差距</th><th class="r">建議調整（${esc(S.settings.baseCurrency)}）</th><th></th></tr>
+      ${rows.map(r => `<tr ${r.flag ? 'style="background:var(--danger-soft)"' : ""}>
+        <td>${esc(r.sym)} <span class="badge grey">${esc(r.mkt)}</span><div class="muted">${esc(r.name)}</div></td>
+        <td class="r num">${pct1(r.target)}</td><td class="r num">${pct1(r.actual)}</td>
+        <td class="r num ${r.gap > 0 ? "gap-pos" : r.gap < 0 ? "gap-neg" : ""}">${r.gap === null ? "—" : (r.gap > 0 ? "+" : "") + pct1(r.gap)}</td>
+        <td class="r num">${r.suggest === null || !r.flag ? "—" : (r.suggest > 0 ? "買入 " : "賣出 ") + fmtN(Math.abs(r.suggest))}</td>
+        <td class="r">${r.t ? `<button class="btn sm" data-tedit="${r.k}">編輯</button><button class="btn sm danger" data-tdel="${r.k}">刪除</button>` : `<button class="btn sm" data-tadd="${r.k}">設目標</button>`}</td>
+      </tr>`).join("") || `<tr><td colspan="6" class="muted">尚無目標或持倉。</td></tr>`}
+    </table></div>
+    <div class="muted" style="margin-top:8px">建議金額為一階近似（差距 × 曝險總額），實際買賣會改變分母，執行後請重新檢視。</div></div>`;
+  $("#addTarget").onclick = () => targetForm(null);
+  document.querySelectorAll("[data-tedit]").forEach(b => b.onclick = () => targetForm(S.targets.find(t => t.id === b.dataset.tedit)));
+  document.querySelectorAll("[data-tadd]").forEach(b => b.onclick = () => {
+    const e = exposures().list.find(x => x.key === b.dataset.tadd);
+    openForm("設定目標配置", fld("代號", `<input value="${esc(e.symbol)}" disabled>`) + fld("目標 %", inp("targetPct","","required inputmode='decimal'")),
+      async d => {
+        const p = parseFloat(d.targetPct);
+        if(isNaN(p) || p < 0 || p > 100) return "目標 % 需為 0–100 的數字";
+        await dbPut("targets", {id:e.key, symbol:e.symbol, market:e.market, targetPct:p, note:"", updatedAt:todayStr()});
+      });
+  });
+  document.querySelectorAll("[data-tdel]").forEach(b => b.onclick = async () => {
+    if(confirm("刪除此目標？")){ await dbDelete("targets", b.dataset.tdel); await refresh(); }
+  });
+}
+/* ============ ETF 成分 ============ */
+let etfSel = null;
+function vEtf(){
+  const etfs = S.instruments.filter(i => i.type === "etf");
+  if(etfs.length === 0){ $("#main").innerHTML = `<div class="card muted">尚無 ETF。在「持倉」新增類型為 ETF 的標的後，即可在此管理成分。</div>`; return; }
+  if(!etfSel || !etfs.find(i => i.id === etfSel)) etfSel = etfs[0].id;
+  const ins = etfs.find(i => i.id === etfSel);
+  const cons = S.etf.filter(c => c.etfInstrumentId === ins.id).sort((a,b) => b.weightPct - a.weightPct);
+  const wsum = cons.reduce((s,c) => s + (Number(c.weightPct)||0), 0);
+  $("#main").innerHTML = `
+    <div class="row between" style="margin-bottom:10px">
+      <select id="etfSel" style="font:inherit;font-size:.85rem;padding:6px 9px;border:1px solid var(--line);border-radius:7px">
+        ${etfs.map(i => `<option value="${i.id}" ${i.id===etfSel?"selected":""}>${esc(i.symbol)}｜${esc(i.name)}</option>`).join("")}
+      </select>
+      <button class="btn primary" id="addCon">＋成分</button></div>
+    <div class="card">
+      <div class="row between"><h2>${esc(ins.symbol)} 持股成分</h2>
+        <span class="muted num">權重合計 ${pct1(wsum)}${wsum < 99.9 ? "（殘差歸入其他/現金）" : ""}</span></div>
+      <div class="tbl-wrap"><table>
+        <tr><th>成分代號</th><th>名稱</th><th class="r">權重%</th><th>資料日期</th><th></th></tr>
+        ${cons.map(c => `<tr><td>${esc(c.underlyingSymbol)} <span class="badge grey">${esc(c.underlyingMarket)}</span></td>
+          <td>${esc(c.underlyingName)}</td><td class="r num">${fmtN(c.weightPct,2)}</td><td>${esc(c.asOfDate||"")}</td>
+          <td class="r"><button class="btn sm danger" data-cdel="${c.id}">刪除</button></td></tr>`).join("")
+          || `<tr><td colspan="5" class="muted">尚無成分。可逐筆新增，或到「匯入」頁用 CSV 整批匯入（建議：從發行商官網下載每日持股 CSV 轉貼）。</td></tr>`}
+      </table></div></div>`;
+  $("#etfSel").onchange = e => { etfSel = e.target.value; refresh(); };
+  $("#addCon").onclick = () => openForm("新增成分",
+    fld("成分代號", inp("sym","","required style='text-transform:uppercase'")) +
+    fld("成分市場", sel("mkt", MARKETS.map(m=>[m,m]), ins.market)) +
+    fld("名稱", inp("nm","")) + fld("權重 %", inp("w","","required inputmode='decimal'")),
+    async d => {
+      const w = parseFloat(d.w);
+      if(!d.sym.trim() || isNaN(w)) return "代號與權重必填";
+      await dbPut("etfConstituents", {id:uid(), etfInstrumentId:ins.id, underlyingSymbol:d.sym.toUpperCase().trim(),
+        underlyingMarket:d.mkt, underlyingName:d.nm.trim(), weightPct:w, asOfDate:todayStr(), source:"manual"});
+    });
+  document.querySelectorAll("[data-cdel]").forEach(b => b.onclick = async () => {
+    await dbDelete("etfConstituents", b.dataset.cdel); await refresh();
+  });
+}
+
+/* ============ 匯率 ============ */
+function vFx(){
+  const base = S.settings.baseCurrency;
+  const used = new Set([...S.accounts.map(a => a.currency), ...S.instruments.map(i => i.currency)]);
+  used.delete(base);
+  const codes = new Set([...S.fx.map(f => f.id), ...used]); codes.delete(base);
+  const rows = [...codes].sort().map(c => {
+    const f = S.fx.find(x => x.id === c);
+    return `<tr><td>${esc(c)} ${used.has(c) ? "" : '<span class="badge grey">未使用</span>'}</td>
+      <td class="r"><input class="inline-num num" data-fx="${esc(c)}" value="${f ? f.rateToBase : ""}" inputmode="decimal" placeholder="未設定"></td>
+      <td class="muted">${esc(f?.updatedAt || "")}</td></tr>`;
+  }).join("");
+  $("#main").innerHTML = `
+    <div class="card"><h2>匯率（1 外幣 = ? ${esc(base)}）</h2>
+      <div class="muted" style="margin-bottom:8px">MVP 為手動輸入。留空的幣別，其帳戶金額不會計入加總並會顯示警告。</div>
+      <div class="tbl-wrap"><table><tr><th>幣別</th><th class="r">對 ${esc(base)} 匯率</th><th>更新日</th></tr>
+      ${rows || `<tr><td colspan="3" class="muted">目前所有帳戶皆為基準幣別，無需設定。</td></tr>`}
+      </table></div>
+      <div style="margin-top:10px"><button class="btn" id="addFx">＋其他幣別</button></div></div>`;
+  document.querySelectorAll("[data-fx]").forEach(i => i.onchange = async () => {
+    const v = parseFloat(i.value);
+    if(i.value.trim() === ""){ return; }
+    if(isNaN(v) || v <= 0){ alert("匯率需為正數"); return; }
+    await dbPut("fxRates", {id:i.dataset.fx, rateToBase:v, updatedAt:todayStr(), source:"manual"});
+    await refresh();
+  });
+  $("#addFx").onclick = () => openForm("新增幣別",
+    fld("幣別代碼（ISO 4217，如 JPY）", inp("code","","required maxlength=8 style='text-transform:uppercase'")) +
+    fld("對 " + base + " 匯率", inp("rate","","required inputmode='decimal'")),
+    async d => {
+      const v = parseFloat(d.rate);
+      if(!d.code.trim() || isNaN(v) || v <= 0) return "請輸入幣別與正數匯率";
+      await dbPut("fxRates", {id:d.code.toUpperCase().trim(), rateToBase:v, updatedAt:todayStr(), source:"manual"});
+    });
+}
+/* ============ CSV 解析（支援引號、逗號、CRLF） ============ */
+function parseCSV(text){
+  const rows = []; let row = [], cell = "", q = false;
+  text = text.replace(/^\uFEFF/, "");
+  const firstLine = text.split(/\r?\n/, 1)[0] || "";
+  const delim = firstLine.includes("\t") ? "\t" : ","; // 標題列含 tab 視為 Excel 貼上
+  for(let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if(q){
+      if(ch === '"'){ if(text[i+1] === '"'){ cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    }else if(ch === '"') q = true;
+    else if(ch === delim){ row.push(cell); cell = ""; }
+    else if(ch === "\n" || ch === "\r"){
+      if(ch === "\r" && text[i+1] === "\n") i++;
+      row.push(cell); cell = "";
+      if(row.some(c => c.trim() !== "")) rows.push(row);
+      row = [];
+    }else cell += ch;
+  }
+  if(cell !== "" || row.length){ row.push(cell); if(row.some(c => c.trim() !== "")) rows.push(row); }
+  return rows;
+}
+function downloadText(filename, text, mime){
+  const isCsv = !mime || mime === "text/csv";
+  const blob = new Blob([isCsv ? "\uFEFF" + text : text], {type:(mime||"text/csv") + ";charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* ============ 匯入定義 ============ */
+const num = v => { const n = parseFloat(String(v).replace(/,/g,"")); return isNaN(n) ? null : n; };
+const IMPORTS = {
+  accounts: {
+    label:"帳戶清單", headers:["類別","群組","帳戶","幣別","類型","金額","備註"],
+    sample:['權益,現金,生活費,TWD,金額,150000,', '權益,股票,美股持倉,USD,持倉,,', '負債,長期負債,房貸,TWD,金額,8000000,'],
+    validate(r){
+      const e = {};
+      if(!["負債","權益"].includes(r["類別"])) e["類別"] = "需為 負債 或 權益";
+      if(!r["群組"]) e["群組"] = "必填";
+      if(!r["帳戶"]) e["帳戶"] = "必填";
+      if(!/^[A-Za-z]{3,8}$/.test(r["幣別"]||"")) e["幣別"] = "需為 ISO 代碼";
+      if(!["金額","持倉","balance","holding"].includes(r["類型"])) e["類型"] = "需為 金額 或 持倉";
+      if(r["金額"] && num(r["金額"]) === null) e["金額"] = "需為數字";
+      return e;
+    },
+    async commit(rows){
+      let n = 0;
+      for(const r of rows){
+        const cat = r["類別"] === "負債" ? "liability" : "equity";
+        let g = S.groups.find(g => g.categoryId === cat && g.name === r["群組"].trim());
+        if(!g){ g = {id:uid(), categoryId:cat, name:r["群組"].trim(), sortOrder:Date.now()%100000}; await dbPut("groups", g); S.groups.push(g); }
+        const kind = ["持倉","holding"].includes(r["類型"]) ? "holding" : "balance";
+        let a = S.accounts.find(a => a.groupId === g.id && a.name === r["帳戶"].trim());
+        const bal = num(r["金額"]);
+        if(a){ Object.assign(a, {currency:r["幣別"].toUpperCase(), kind, note:r["備註"]||a.note}); if(bal !== null && kind === "balance") a.balance = bal; await dbPut("accounts", a); }
+        else{ a = {id:uid(), groupId:g.id, name:r["帳戶"].trim(), currency:r["幣別"].toUpperCase(), kind,
+          balance:(kind === "balance" && bal !== null) ? bal : 0, note:r["備註"]||"", sortOrder:Date.now()%100000}; await dbPut("accounts", a); S.accounts.push(a); }
+        n++;
+      }
+      return n;
+    }
+  },
+  positions: {
+    label:"持倉明細", headers:["帳戶","代號","市場","名稱","類型","數量","平均成本","現價"],
+    sample:['台股持倉,2330,TW,台積電,stock,1000,580,1050', '美股持倉,VOO,US,Vanguard S&P 500,etf,20,380.5,560.2'],
+    validate(r){
+      const e = {};
+      if(!S.accounts.find(a => a.kind === "holding" && a.name === (r["帳戶"]||"").trim())) e["帳戶"] = "找不到同名的持倉型帳戶";
+      if(!r["代號"]) e["代號"] = "必填";
+      if(!MARKETS.includes((r["市場"]||"").toUpperCase())) e["市場"] = "需為 " + MARKETS.join("/");
+      if(!["stock","etf","crypto","other"].includes((r["類型"]||"").toLowerCase())) e["類型"] = "需為 stock/etf/crypto/other";
+      if(num(r["數量"]) === null) e["數量"] = "需為數字";
+      if(num(r["現價"]) === null) e["現價"] = "需為數字";
+      return e;
+    },
+    async commit(rows){
+      let n = 0;
+      for(const r of rows){
+        const acc = S.accounts.find(a => a.kind === "holding" && a.name === r["帳戶"].trim());
+        const mkt = r["市場"].toUpperCase(), sym = r["代號"].toUpperCase().trim(), key = instrKey(mkt, sym);
+        let ins = S.instruments.find(i => i.id === key);
+        ins = {...(ins||{}), id:key, symbol:sym, market:mkt, name:(r["名稱"]||"").trim() || sym,
+          type:r["類型"].toLowerCase(), currency:(ins && ins.currency) || acc.currency,
+          lastPrice:num(r["現價"]), lastPriceDate:todayStr(), priceSource:"csv"};
+        await dbPut("instruments", ins);
+        if(!S.instruments.find(i => i.id === key)) S.instruments.push(ins);
+        let p = S.positions.find(p => p.accountId === acc.id && p.instrumentId === key);
+        if(p){ p.quantity = num(r["數量"]); p.avgCost = num(r["平均成本"]); await dbPut("positions", p); }
+        else{ p = {id:uid(), accountId:acc.id, instrumentId:key, quantity:num(r["數量"]), avgCost:num(r["平均成本"])}; await dbPut("positions", p); S.positions.push(p); }
+        n++;
+      }
+      return n;
+    }
+  },
+  etf: {
+    label:"ETF 成分", headers:["ETF代號","ETF市場","成分代號","成分市場","成分名稱","權重"],
+    sample:['VOO,US,AAPL,US,Apple,7.1', 'VOO,US,MSFT,US,Microsoft,6.5', '0050,TW,2330,TW,台積電,57.3'],
+    note:"匯入時會先清除該 ETF 的舊成分再寫入新資料（整檔覆蓋）。ETF 需先存在於持倉中。",
+    validate(r){
+      const e = {};
+      const key = instrKey(r["ETF市場"], r["ETF代號"]);
+      const ins = S.instruments.find(i => i.id === key);
+      if(!ins) e["ETF代號"] = "找不到此 ETF（請先在持倉建立）";
+      else if(ins.type !== "etf") e["ETF代號"] = "此標的類型不是 etf";
+      if(!r["成分代號"]) e["成分代號"] = "必填";
+      if(!MARKETS.includes((r["成分市場"]||"").toUpperCase())) e["成分市場"] = "需為 " + MARKETS.join("/");
+      const w = num(r["權重"]);
+      if(w === null || w < 0 || w > 100) e["權重"] = "需為 0–100 數字";
+      return e;
+    },
+    async commit(rows){
+      const byEtf = {};
+      for(const r of rows){
+        const key = instrKey(r["ETF市場"], r["ETF代號"]);
+        (byEtf[key] = byEtf[key] || []).push(r);
+      }
+      let n = 0;
+      for(const [etfId, rs] of Object.entries(byEtf)){
+        for(const c of S.etf.filter(c => c.etfInstrumentId === etfId)) await dbDelete("etfConstituents", c.id);
+        for(const r of rs){
+          await dbPut("etfConstituents", {id:uid(), etfInstrumentId:etfId,
+            underlyingSymbol:r["成分代號"].toUpperCase().trim(), underlyingMarket:r["成分市場"].toUpperCase(),
+            underlyingName:(r["成分名稱"]||"").trim(), weightPct:num(r["權重"]), asOfDate:todayStr(), source:"csv"});
+          n++;
+        }
+      }
+      return n;
+    }
+  },
+  fx: {
+    label:"匯率", headers:["幣別","匯率"],
+    sample:['USD,31.5', 'EUR,34.2'],
+    validate(r){
+      const e = {};
+      if(!/^[A-Za-z]{3,8}$/.test(r["幣別"]||"")) e["幣別"] = "需為 ISO 代碼";
+      const v = num(r["匯率"]);
+      if(v === null || v <= 0) e["匯率"] = "需為正數";
+      return e;
+    },
+    async commit(rows){
+      for(const r of rows) await dbPut("fxRates", {id:r["幣別"].toUpperCase().trim(), rateToBase:num(r["匯率"]), updatedAt:todayStr(), source:"csv"});
+      return rows.length;
+    }
+  },
+  targets: {
+    label:"目標配置", headers:["代號","市場","目標百分比","備註"],
+    sample:['2330,TW,25,', 'AAPL,US,10,含透過ETF間接持有'],
+    validate(r){
+      const e = {};
+      if(!r["代號"]) e["代號"] = "必填";
+      if(!MARKETS.includes((r["市場"]||"").toUpperCase())) e["市場"] = "需為 " + MARKETS.join("/");
+      const p = num(r["目標百分比"]);
+      if(p === null || p < 0 || p > 100) e["目標百分比"] = "需為 0–100 數字";
+      return e;
+    },
+    async commit(rows){
+      for(const r of rows){
+        const sym = r["代號"].toUpperCase().trim(), mkt = r["市場"].toUpperCase();
+        await dbPut("targets", {id:instrKey(mkt, sym), symbol:sym, market:mkt, targetPct:num(r["目標百分比"]), note:r["備註"]||"", updatedAt:todayStr()});
+      }
+      return rows.length;
+    }
+  }
+};
+/* ============ 匯入頁 ============ */
+let importType = "accounts", importParsed = null;
+function vImport(){
+  const def = IMPORTS[importType];
+  $("#main").innerHTML = `
+    <div class="card"><h2>整批匯入（CSV / 貼上）</h2>
+      <div class="muted" style="margin-bottom:10px">所有處理都在你的裝置本機完成，選擇檔案只是讓瀏覽器讀取內容，不會上傳。相同鍵值的資料會被更新（upsert），不會重複新增。</div>
+      <div class="row" style="margin-bottom:10px">
+        <select id="impType" style="font:inherit;font-size:.85rem;padding:6px 9px;border:1px solid var(--line);border-radius:7px">
+          ${Object.entries(IMPORTS).map(([k,v]) => `<option value="${k}" ${k===importType?"selected":""}>${v.label}</option>`).join("")}
+        </select>
+        <button class="btn" id="dlTemplate">下載空白範本 CSV</button>
+      </div>
+      ${def.note ? `<div class="banner">${esc(def.note)}</div>` : ""}
+      <h3>方式一：選擇 CSV 檔</h3>
+      <input type="file" id="impFile" accept=".csv,.txt,text/csv">
+      <h3>方式二：從 Excel / Google Sheets 直接貼上（含標題列）</h3>
+      <textarea class="paste" id="impPaste" placeholder="${esc(def.headers.join(","))}\n..."></textarea>
+      <div style="margin-top:8px"><button class="btn primary" id="impParse">解析並預覽</button></div>
+      <div id="impResult"></div>
+    </div>`;
+  $("#impType").onchange = e => { importType = e.target.value; importParsed = null; vImport(); };
+  $("#dlTemplate").onclick = () => downloadText(importType + "_範本.csv", def.headers.join(",") + "\n" + def.sample.join("\n") + "\n");
+  $("#impFile").onchange = e => {
+    const file = e.target.files[0]; if(!file) return;
+    const rd = new FileReader();
+    rd.onload = () => doParse(rd.result);
+    rd.readAsText(file, "utf-8");
+  };
+  $("#impParse").onclick = () => {
+    const t = $("#impPaste").value;
+    if(!t.trim()){ alert("請先貼上內容或選擇檔案"); return; }
+    doParse(t);
+  };
+}
+function doParse(text){
+  const def = IMPORTS[importType];
+  const raw = parseCSV(text);
+  if(raw.length < 2){ $("#impResult").innerHTML = `<div class="banner">資料不足：需要標題列＋至少一筆資料。</div>`; return; }
+  const header = raw[0].map(h => h.trim());
+  const missing = def.headers.filter(h => !header.includes(h));
+  if(missing.length){ $("#impResult").innerHTML = `<div class="banner">缺少欄位：${missing.map(esc).join("、")}。請使用範本的標題列。</div>`; return; }
+  const rows = raw.slice(1).map(cells => {
+    const r = {};
+    header.forEach((h,i) => r[h] = (cells[i] ?? "").trim());
+    return {data:r, errors:def.validate(r)};
+  });
+  const errN = rows.filter(r => Object.keys(r.errors).length).length;
+  importParsed = rows;
+  $("#impResult").innerHTML = `
+    <div class="banner ${errN ? "" : "ok"}" style="margin-top:12px">
+      共 ${rows.length} 筆，${errN ? `其中 <strong>${errN} 筆有錯誤</strong>（標紅），需修正後重新解析才能匯入。` : "全部通過檢查。"}</div>
+    <div class="import-preview"><table>
+      <tr><th>#</th>${def.headers.map(h => `<th>${esc(h)}</th>`).join("")}</tr>
+      ${rows.map((r,i) => `<tr><td class="num">${i+1}</td>${def.headers.map(h => {
+        const err = r.errors[h];
+        return `<td class="${err ? "err-cell" : ""}">${esc(r.data[h])}${err ? `<div style="font-size:.68rem">${esc(err)}</div>` : ""}</td>`;
+      }).join("")}</tr>`).join("")}
+    </table></div>
+    ${errN === 0 ? `<div style="margin-top:10px"><button class="btn primary" id="impCommit">確認匯入 ${rows.length} 筆</button></div>` : ""}`;
+  const btn = $("#impCommit");
+  if(btn) btn.onclick = async () => {
+    const n = await IMPORTS[importType].commit(importParsed.map(r => r.data));
+    importParsed = null;
+    alert(`已匯入 ${n} 筆（${IMPORTS[importType].label}）。`);
+    await refresh();
+  };
+}
+
+/* ============ 儲存 / 載入資料檔 ============ */
+function saveFileName(){ return "資產資料_" + todayStr() + ".json"; }
+function recordSnapshot(){
+  const t = totals();
+  if(t.missing.size) return; // 匯率不齊會低估淨值，跳過記錄避免污染歷史
+  const d = todayStr();
+  const snap = {id:d, date:d, assets:t.totalAssets, liabilities:t.debt, net:t.netWorth};
+  const i = S.snapshots.findIndex(x => x.id === d);
+  if(i >= 0) S.snapshots[i] = snap; else S.snapshots.push(snap);
+}
+function doSave(){
+  recordSnapshot();
+  const json = JSON.stringify(serializeAll(), null, 1);
+  const markSaved = () => {
+    S.dirty = false; updateSaveUI();
+    try{
+      localStorage.setItem(SNAPSHOT_KEY, json);
+      localStorage.setItem(LASTBK_KEY, new Date().toISOString());
+    }catch(e){}
+  };
+  $("#dlgTitle").textContent = "備份資料";
+  const f = $("#dlgForm");
+  f.innerHTML = `
+    <div class="muted" style="margin-bottom:8px">日常修改已自動存在此瀏覽器；備份是額外保險（每週一次即可）。若「下載」在目前環境沒有反應，請改用「顯示文字」。</div>
+    <div class="row">
+      <button type="button" class="btn primary" id="svDl">下載 JSON 檔</button>
+      <button type="button" class="btn" id="svTxt">顯示文字（複製保存）</button>
+    </div>
+    <div id="svTxtWrap" style="display:none">
+      <textarea class="paste" id="svTa" readonly style="min-height:170px;margin-top:10px"></textarea>
+      <div class="row" style="margin-top:6px">
+        <button type="button" class="btn" id="svCopy">複製到剪貼簿</button>
+        <button type="button" class="btn" id="svCopied">我已手動複製完成</button>
+      </div>
+      <div class="muted" style="margin-top:4px">貼到你信任的地方保存（例如備忘錄的鎖定筆記）。要還原時，在起始畫面「貼上文字」載入即可。</div>
+    </div>
+    <div class="dlg-actions"><button type="button" class="btn" id="svClose">關閉</button></div>`;
+  f.onsubmit = e => e.preventDefault();
+  $("#svDl").onclick = () => { downloadText(saveFileName(), json, "application/json"); markSaved(); };
+  $("#svTxt").onclick = () => { $("#svTxtWrap").style.display = ""; $("#svTa").value = json; };
+  $("#svCopy").onclick = async () => {
+    try{
+      await navigator.clipboard.writeText(json);
+      markSaved(); alert("已複製到剪貼簿，請立即貼到安全處保存。");
+    }catch(e){
+      const ta = $("#svTa"); ta.focus(); ta.select();
+      alert("此環境不允許自動複製，請長按文字框全選後手動複製，完成後按「我已手動複製完成」。");
+    }
+  };
+  $("#svCopied").onclick = () => { markSaved(); alert("已標記為已儲存。"); };
+  $("#svClose").onclick = () => dlg().close();
+  dlg().showModal();
+}
+function loadFromText(txt){
+  let d;
+  try{ d = JSON.parse(String(txt).replace(/^\uFEFF/, "").trim()); deserializeAll(d); }
+  catch(e){ alert("載入失敗：" + e.message); return false; }
+  S.started = true; S.dirty = false; S.loadedFileName = "（由貼上文字載入）";
+  try{ localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(serializeAll())); }catch(e){}
+  currentTab = "overview"; refresh(); return true;
+}
+function readJSONFile(file, cb){
+  const rd = new FileReader();
+  rd.onload = () => {
+    try{ cb(null, JSON.parse(String(rd.result).replace(/^\uFEFF/, ""))); }
+    catch(err){ cb(err); }
+  };
+  rd.onerror = () => cb(rd.error || new Error("讀檔失敗"));
+  rd.readAsText(file, "utf-8");
+}
+function loadFromFile(file){
+  readJSONFile(file, (err, d) => {
+    if(!err){ try{ deserializeAll(d); }catch(e){ err = e; } }
+    if(err){ alert("載入失敗：" + err.message); return; }
+    S.started = true; S.dirty = false; S.loadedFileName = file.name;
+    try{ localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(serializeAll())); }catch(e){}
+    currentTab = "overview"; refresh();
+  });
+}
+
+/* ============ 起始畫面 ============ */
+function renderStart(){
+  $("#tabs").innerHTML = "";
+  const sb = $("#saveBtn"); if(sb) sb.style.display = "none";
+  const pb = $("#privBtn"); if(pb) pb.style.display = "none";
+  let snap = null, snapTime = "";
+  try{
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if(raw){ snap = JSON.parse(raw); snapTime = (snap.saved_at||"").replace("T"," ").slice(0,16); }
+  }catch(e){ snap = null; }
+  $("#main").innerHTML = `
+    <div class="card"><h2>開始使用</h2>
+      <div class="muted" style="margin-bottom:12px">首次使用請擇一開始。之後所有修改會<strong>自動儲存在此瀏覽器本機</strong>，下次打開直接接續，不需手動存檔；建議每週按右上角「備份」保存一份到備忘錄或檔案。App 不上傳任何資料。</div>
+      <div class="row" style="margin-bottom:6px">
+        <label class="btn primary" style="cursor:pointer">載入我的資料檔（.json）<input type="file" id="startLoad" accept=".json,application/json" style="display:none"></label>
+        <button class="btn" id="startNew">建立新資料（含預設帳戶架構）</button>
+      </div>
+      <details style="margin-top:8px"><summary>備援方式：貼上資料文字載入</summary>
+        <textarea class="paste" id="startPaste" placeholder="貼上先前複製保存的資料文字（JSON）"></textarea>
+        <div style="margin-top:6px"><button class="btn" id="startPasteBtn">載入貼上的文字</button></div>
+      </details>
+      ${snap ? `<div class="banner" style="margin-top:10px">偵測到此瀏覽器留有一份臨時快取（${esc(snapTime)}），可能包含上次未存檔的變更。
+        <div style="margin-top:6px"><button class="btn sm" id="startSnap">還原臨時快取</button></div>
+        <div style="margin-top:4px;font-size:.72rem">注意：臨時快取由瀏覽器保管，可能被系統清除，不能取代資料檔。</div></div>` : ""}
+    </div>
+    <div class="card"><h2>資料流程</h2>
+      <div class="muted">1. 第一次：建立新資料 → 輸入或匯入（會自動儲存）<br>
+      2. 之後每次：直接打開就是上次的資料<br>
+      3. 每週：按右上角「備份」→ 顯示文字 → 複製到備忘錄（鎖定筆記）。萬一瀏覽器資料遺失，用備份貼回即可完整還原</div></div>`;
+  $("#startLoad").onchange = e => { if(e.target.files[0]) loadFromFile(e.target.files[0]); };
+  $("#startNew").onclick = async () => {
+    await seedDefaults();
+    S.started = true; S.dirty = true;
+    currentTab = "overview"; refresh();
+  };
+  $("#startPasteBtn").onclick = () => {
+    const t = $("#startPaste").value;
+    if(!t.trim()){ alert("請先貼上資料文字"); return; }
+    loadFromText(t);
+  };
+  const bs = $("#startSnap");
+  if(bs) bs.onclick = () => {
+    try{ deserializeAll(snap); }catch(e){ alert("快取已損毀，無法還原：" + e.message); return; }
+    S.started = true; S.dirty = true; currentTab = "overview"; refresh();
+  };
+}
+
+/* ============ 設定 ============ */
+function vSettings(){
+  const st = S.settings;
+  $("#main").innerHTML = `
+    <div class="card"><h2>一般設定</h2>
+      <label style="display:block;font-size:.75rem;color:var(--ink-soft);margin:8px 0 3px">基準幣別</label>
+      <div class="row"><input id="setBase" class="inline-num" style="text-align:left;width:90px" value="${esc(st.baseCurrency)}" maxlength="8">
+        <span class="muted">變更後所有匯率須以新基準重新輸入，系統不會自動換算</span></div>
+      <label style="display:block;font-size:.75rem;color:var(--ink-soft);margin:12px 0 3px">再平衡提醒門檻（±%）</label>
+      <input id="setTh" class="inline-num" value="${Number(st.thresholdPct)||5}" inputmode="decimal">
+      <div style="margin-top:12px"><button class="btn primary" id="saveSet">儲存設定</button></div></div>
+    <div class="card"><h2>本機儲存與備份</h2>
+      <div class="muted" style="margin-bottom:8px">資料自動儲存於此瀏覽器（${
+        S.persisted === true ? "已向系統取得持久儲存承諾" : S.persisted === false ? "⚠ 系統未承諾持久保存，備份更重要" : "持久儲存狀態無法確認"
+      }）。上次備份：${(() => { try{ const t = localStorage.getItem(LASTBK_KEY); return t ? t.replace("T"," ").slice(0,16) : "從未"; }catch(e){ return "無法讀取"; } })()}</div>
+      <div class="row">
+        <button class="btn primary" id="expNow">立即備份（下載或顯示文字）</button>
+        <label class="btn" style="cursor:pointer">載入其他資料檔<input type="file" id="loadOther" accept=".json,application/json" style="display:none"></label>
+        <button class="btn" id="txtIn">貼上文字載入</button>
+      </div>
+      <div class="muted" style="margin-top:8px">資料檔為明文 JSON，請妥善保管。載入其他檔會<strong>完全取代</strong>目前畫面上的資料。</div></div>
+    <div class="card"><h2>重設</h2>
+      <button class="btn danger" id="wipeAll">清空目前資料並重新開始</button>
+      <div class="muted" style="margin-top:6px">只影響畫面與臨時快取，不會刪除你已存在「檔案」App 裡的資料檔。</div></div>`;
+  $("#saveSet").onclick = async () => {
+    const base = $("#setBase").value.toUpperCase().trim();
+    const th = parseFloat($("#setTh").value);
+    if(!/^[A-Z]{3,8}$/.test(base)){ alert("基準幣別需為 ISO 代碼"); return; }
+    if(isNaN(th) || th < 0){ alert("門檻需為非負數字"); return; }
+    if(base !== st.baseCurrency && !confirm(`確定將基準幣別改為 ${base}？所有匯率須重新輸入。`)) return;
+    await dbPut("settings", {...st, baseCurrency:base, thresholdPct:th});
+    if(base !== st.baseCurrency) await dbPut("fxRates", {id:base, rateToBase:1, updatedAt:todayStr()});
+    await refresh(); alert("已更新並自動儲存。");
+  };
+  $("#expNow").onclick = doSave;
+  $("#txtIn").onclick = () => {
+    $("#dlgTitle").textContent = "貼上資料文字載入";
+    const f = $("#dlgForm");
+    f.innerHTML = `<textarea class="paste" id="tiTa" style="min-height:170px" placeholder="貼上先前複製保存的資料文字（JSON）"></textarea>
+      <div class="muted" style="margin-top:4px">載入會完全取代目前畫面上的資料。</div>
+      <div class="dlg-actions"><button type="button" class="btn" id="tiCancel">取消</button>
+      <button type="button" class="btn primary" id="tiGo">載入</button></div>`;
+    f.onsubmit = e => e.preventDefault();
+    $("#tiCancel").onclick = () => dlg().close();
+    $("#tiGo").onclick = () => {
+      if(S.dirty && !confirm("目前有未儲存的變更，載入將會遺失。繼續？")) return;
+      if(loadFromText($("#tiTa").value)) dlg().close();
+    };
+    dlg().showModal();
+  };
+  $("#loadOther").onchange = e => {
+    if(!e.target.files[0]) return;
+    if(S.dirty && !confirm("目前有未儲存的變更，載入其他檔將會遺失這些變更。繼續？")){ e.target.value = ""; return; }
+    loadFromFile(e.target.files[0]);
+  };
+  $("#wipeAll").onclick = async () => {
+    if(!confirm("確定清空目前畫面上的資料？未儲存的變更將遺失。")) return;
+    try{ localStorage.removeItem(SNAPSHOT_KEY); }catch(e){}
+    S.started = false; S.dirty = false; S.loadedFileName = null;
+    renderStart();
+  };
+}
+
+/* ============ 初始化 ============ */
+const VIEWS = {overview:vOverview, accounts:vAccounts, positions:vPositions, exposure:vExposure,
+  alloc:vAlloc, etf:vEtf, fx:vFx, import:vImport, settings:vSettings};
+
+document.getElementById("saveBtn").onclick = doSave;
+document.getElementById("privBtn").onclick = () => {
+  PRIVACY = !PRIVACY;
+  document.body.classList.toggle("privacy", PRIVACY);
+  document.getElementById("privBtn").textContent = PRIVACY ? "顯示金額" : "遮住金額";
+  refresh();
+};
+(function boot(){
+  if(navigator.storage && navigator.storage.persist){
+    navigator.storage.persist().then(p => { S.persisted = p; }).catch(() => { S.persisted = null; });
+  }
+  let snap = null;
+  try{ const raw = localStorage.getItem(SNAPSHOT_KEY); if(raw) snap = JSON.parse(raw); }catch(e){ snap = null; }
+  if(snap){
+    try{
+      deserializeAll(snap);
+      S.started = true; S.dirty = false; S.loadedFileName = "（本機自動儲存）";
+      refresh(); return;
+    }catch(e){ /* 快取損毀則回到起始畫面 */ }
+  }
+  renderStart();
+})();
+
+</script>
+</body>
+</html>
