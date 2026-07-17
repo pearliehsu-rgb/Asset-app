@@ -390,6 +390,42 @@ function netHistoryCard(){
     <div class="row between muted num"><span>最低 ${fmtN(min)}</span><span>最新 ${fmtN(vs[vs.length-1])}</span><span>最高 ${fmtN(max)}</span></div></div>`;
 }
 
+function makeDonut(items, ariaLabel){
+  const palette = ["#0f6f6a","#3b7dd8","#c58a1e","#8459b3","#b4421f","#5a8a4a","#7a7f87","#c04f7c"];
+  const sum = items.reduce((s,x) => s + x.value, 0);
+  if(sum <= 0) return {sum:0, svg:"", legend:""};
+  let angle = -90;
+  const arcs = items.map((it,i) => {
+    const frac = it.value / sum;
+    const a0 = angle, a1 = angle + frac * 360; angle = a1;
+    const large = (a1 - a0) > 180 ? 1 : 0;
+    const pt = a => [60 + 46 * Math.cos(a * Math.PI/180), 60 + 46 * Math.sin(a * Math.PI/180)];
+    const [x0,y0] = pt(a0), [x1,y1] = pt(a1 - 0.0001);
+    return `<path d="M ${x0} ${y0} A 46 46 0 ${large} 1 ${x1} ${y1}" fill="none" stroke="${it.color || palette[i%palette.length]}" stroke-width="16"/>`;
+  }).join("");
+  const svg = `<svg width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="${esc(ariaLabel)}">${arcs}</svg>`;
+  const legend = `<div class="legend">` + items.map((it,i) =>
+    `<div><i style="background:${it.color || palette[i%palette.length]}"></i>${esc(it.name)}
+     <span class="muted num">${fmtN(it.value)}（${pct1(it.value/sum*100)}）</span></div>`).join("") + `</div>`;
+  return {sum, svg, legend};
+}
+function stockRegionData(){
+  const missing = new Set();
+  const b = {TW:0, US:0, EU:0, OTHER:0};
+  for(const acc of S.accounts.filter(a => a.kind === "holding")){
+    for(const p of S.positions.filter(p => p.accountId === acc.id)){
+      const ins = S.instruments.find(i => i.id === p.instrumentId);
+      if(!ins) continue;
+      const v = toBase((Number(p.quantity)||0) * (Number(ins.lastPrice)||0), ins.currency, missing);
+      const key = (ins.market === "TW" || ins.market === "US" || ins.market === "EU") ? ins.market : "OTHER";
+      b[key] += v;
+    }
+  }
+  const names = {TW:"台股", US:"美股", EU:"歐股", OTHER:"其他"};
+  const colors = {TW:"#b4421f", US:"#3b7dd8", EU:"#5a8a4a", OTHER:"#7a7f87"};
+  return Object.keys(b).filter(k => b[k] > 0).map(k => ({name:names[k], value:b[k], color:colors[k]}));
+}
+
 function vOverview(){
   const t = totals();
   const base = S.settings.baseCurrency;
@@ -414,15 +450,23 @@ function vOverview(){
   }
   $("#main").innerHTML = backupBanner() + missingBanner(t.missing) + `
     <div class="grid4" style="margin-bottom:14px">
-      <div class="stat debt"><div class="lbl">負債（${esc(base)}）</div><div class="val num">${fmtN(t.debt)}</div></div>
-      <div class="stat"><div class="lbl">權益（${esc(base)}）</div><div class="val num">${fmtN(t.equity)}</div></div>
       <div class="stat"><div class="lbl">總資產（${esc(base)}）</div><div class="val num">${fmtN(t.totalAssets)}</div></div>
       <div class="stat net"><div class="lbl">淨資產（${esc(base)}）</div><div class="val num">${fmtN(t.netWorth)}</div></div>
+      <div class="stat debt"><div class="lbl">負債（${esc(base)}）</div><div class="val num">${fmtN(t.debt)}</div></div>
+      <div class="stat"><div class="lbl">權益（${esc(base)}）</div><div class="val num">${fmtN(t.equity)}</div></div>
     </div>
     ${netHistoryCard()}
     <div class="card"><h2>權益組成</h2>
       ${eqSum > 0 ? `<div class="donut-wrap">${donut}${legend}</div>` : `<div class="muted">尚無資料。到「帳戶」頁輸入金額，或到「匯入」頁整批匯入。</div>`}
     </div>
+    ${(() => {
+      const rd = stockRegionData();
+      const d = makeDonut(rd, "持股地區分佈");
+      return `<div class="card"><h2>持股地區分佈（台股／美股／歐股）</h2>
+        ${d.sum > 0 ? `<div class="donut-wrap">${d.svg}${d.legend}</div>
+          <div class="muted" style="margin-top:6px">依持倉標的掛牌市場分類，不含現金；未套用 ETF 透視（透視見「曝險」頁）。</div>`
+        : `<div class="muted">尚無持倉。到「持倉」頁新增股票／ETF 後即顯示。</div>`}</div>`;
+    })()}
     <div class="card"><h2>各群組小計（${esc(base)}）</h2><div class="tbl-wrap"><table>
       <tr><th>類別</th><th>群組</th><th class="r">小計</th></tr>
       ${S.groups.map(g => `<tr><td>${g.categoryId==="liability"?"負債":"權益"}</td><td>${esc(g.name)}</td><td class="r num">${fmtN(t.groupTotals[g.id])}</td></tr>`).join("")}
