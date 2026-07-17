@@ -391,7 +391,7 @@ function netHistoryCard(){
 }
 
 function makeDonut(items, ariaLabel){
-  const palette = ["#0f6f6a","#3b7dd8","#c58a1e","#8459b3","#b4421f","#5a8a4a","#7a7f87","#c04f7c"];
+  const palette = ["#0f6f6a","#3b7dd8","#c58a1e","#8459b3","#b4421f","#5a8a4a","#c04f7c","#2f8f83","#a8631e","#4a6fb0","#7a9a3a","#9a4f8f"];
   const sum = items.reduce((s,x) => s + x.value, 0);
   if(sum <= 0) return {sum:0, svg:"", legend:""};
   let angle = -90;
@@ -424,6 +424,16 @@ function stockRegionData(){
   const names = {TW:"台股", US:"美股", EU:"歐股", OTHER:"其他"};
   const colors = {TW:"#b4421f", US:"#3b7dd8", EU:"#5a8a4a", OTHER:"#7a7f87"};
   return Object.keys(b).filter(k => b[k] > 0).map(k => ({name:names[k], value:b[k], color:colors[k]}));
+}
+
+function twTopHoldings(n){
+  const ex = exposures();                       // 與「曝險」頁相同的 look-through 計算
+  const tw = ex.list.filter(e => e.market === "TW");  // 已按金額由大到小排序
+  const total = tw.reduce((s,e) => s + e.value, 0);
+  const items = tw.slice(0, n).map(e => ({name:(e.symbol + " " + (e.name || "")).trim(), value:e.value}));
+  const restVal = tw.slice(n).reduce((s,e) => s + e.value, 0);
+  if(restVal > 0) items.push({name:"其他台股", value:restVal, color:"#9aa0a6"});
+  return {items, total, count:tw.length};
 }
 
 function vOverview(){
@@ -466,6 +476,14 @@ function vOverview(){
         ${d.sum > 0 ? `<div class="donut-wrap">${d.svg}${d.legend}</div>
           <div class="muted" style="margin-top:6px">依持倉標的掛牌市場分類，不含現金；未套用 ETF 透視（透視見「曝險」頁）。</div>`
         : `<div class="muted">尚無持倉。到「持倉」頁新增股票／ETF 後即顯示。</div>`}</div>`;
+    })()}
+    ${(() => {
+      const r = twTopHoldings(10);
+      const d = makeDonut(r.items, "台股前十大持股");
+      return `<div class="card"><h2>台股前十大持股</h2>
+        ${d.sum > 0 ? `<div class="donut-wrap">${d.svg}${d.legend}</div>
+          <div class="muted" style="margin-top:6px">占台股曝險總額之比例${r.count > 10 ? `；第 11 名以後（共 ${r.count - 10} 檔）合併為「其他台股」` : ""}。已套用 ETF 透視：直接持有＋透過 ETF 間接持有的台股合併計算。</div>`
+        : `<div class="muted">尚無台股曝險。到「持倉」頁新增台股，或持有含台股成分的 ETF 後即顯示。</div>`}</div>`;
     })()}
     <div class="card"><h2>各群組小計（${esc(base)}）</h2><div class="tbl-wrap"><table>
       <tr><th>類別</th><th>群組</th><th class="r">小計</th></tr>
