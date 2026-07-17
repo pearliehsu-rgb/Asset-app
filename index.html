@@ -216,7 +216,7 @@ async function seedDefaults(){
     A(g.stock.id,"歐股現金","EUR","balance",5), A(g.stock.id,"歐股持倉","EUR","holding",6)];
   S.instruments = []; S.positions = []; S.etf = []; S.targets = []; S.snapshots = [];
   S.fx = [{id:"TWD", rateToBase:1, updatedAt:todayStr()}];
-  S.settings = {id:"app", baseCurrency:"TWD", thresholdPct:5};
+  S.settings = {id:"app", baseCurrency:"TWD", thresholdPct:5, autoFetchTwse:true};
   S.meta = {id:"schema", version:SCHEMA_VERSION, createdAt:todayStr()};
 }
 
@@ -346,6 +346,7 @@ function renderTabs(){
 async function refresh(){
   if(!S.started){ renderStart(); return; }
   await loadAll(); renderTabs(); updateSaveUI(); VIEWS[currentTab]();
+  if(typeof maybeAutoFetchTwse === "function") maybeAutoFetchTwse();
 }
 function updateSaveUI(){
   const pb = $("#privBtn"); if(pb) pb.style.display = S.started ? "" : "none";
@@ -615,7 +616,7 @@ function vPositions(){
       <select id="posAcc" style="font:inherit;font-size:.85rem;padding:6px 9px;border:1px solid var(--line);border-radius:7px">
         ${hAccs.map(a => `<option value="${a.id}" ${a.id===posAccSel?"selected":""}>${esc(a.name)}（${esc(a.currency)}）</option>`).join("")}
       </select>
-      <button class="btn primary" id="addPos">＋新增持倉</button></div>
+      <span class="row"><button class="btn" id="twseUpd">↻ 更新台股收盤價</button><button class="btn primary" id="addPos">＋新增持倉</button></span></div>
     <div class="card"><div class="tbl-wrap"><table>
       <tr><th>代號</th><th>名稱</th><th class="r">數量</th><th class="r">價格</th><th class="r">市值（原幣）</th><th class="r">損益（原幣）</th><th></th></tr>
       ${rows || `<tr><td colspan="7" class="muted">此帳戶尚無持倉。可按「＋新增持倉」，或到「匯入」頁整批匯入。</td></tr>`}
@@ -623,6 +624,19 @@ function vPositions(){
     <div class="muted">價格為手動輸入（MVP）。同一檔標的（市場＋代號）在所有帳戶共用同一個價格。</div>`;
   $("#posAcc").onchange = e => { posAccSel = e.target.value; refresh(); };
   $("#addPos").onclick = () => positionForm(acc, null);
+  const tb = $("#twseUpd");
+  if(tb) tb.onclick = async () => {
+    tb.disabled = true; const orig = tb.textContent; tb.textContent = "更新中…";
+    try{
+      const r = await fetchTwseCloses();
+      try{ localStorage.setItem(TWSE_FETCH_KEY, todayStr()); }catch(e){}
+      await refresh();
+      alert(`已更新 ${r.updated} 檔台股收盤價（抓取於 ${new Date().toLocaleString("zh-TW")}）。`
+        + (r.notFound.length ? `\n\n未更新 ${r.notFound.length} 檔（此來源僅含上市，未含上櫃/興櫃；請改用 CSV）：${r.notFound.join("、")}` : ""));
+    }catch(e){
+      alert("無法自動抓取台股收盤價。\n\n可能原因：此資料源未開放瀏覽器跨域存取（CORS）、暫時性網路問題，或來源異動。\n請改用「匯入」頁的 CSV 更新價格。\n\n技術訊息：" + e.message);
+    }finally{ tb.disabled = false; tb.textContent = orig; }
+  };
   document.querySelectorAll("[data-pedit]").forEach(b => b.onclick = () => positionForm(acc, S.positions.find(p => p.id === b.dataset.pedit)));
   document.querySelectorAll("[data-pdel]").forEach(b => b.onclick = async () => {
     if(confirm("確定刪除此持倉？")){ await dbDelete("positions", b.dataset.pdel); await refresh(); }
@@ -1102,6 +1116,55 @@ function loadFromFile(file){
   });
 }
 
+/* ============ 台股收盤價自動更新（證交所 OpenAPI STOCK_DAY_ALL） ============ */
+const TWSE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL";
+const TWSE_FETCH_KEY = "asset_tracker_twse_fetch_v1";
+let twseAutoTried = false;
+
+// 純函式：把抓回來的資料套用到持有的台股標的（可單元測試）
+function applyTwseCloses(rows){
+  const map = {};
+  for(const r of rows){
+    if(!r || r.Code == null) continue;
+    const v = parseFloat(String(r.ClosingPrice).replace(/,/g, ""));
+    if(isFinite(v) && v > 0) map[String(r.Code).trim()] = v;
+  }
+  let updated = 0; const notFound = [];
+  for(const ins of S.instruments){
+    if(ins.market !== "TW") continue;
+    if(!S.positions.some(p => p.instrumentId === ins.id)) continue; // 只更新有持倉的
+    const v = map[String(ins.symbol).trim()];
+    if(v !== undefined){ ins.lastPrice = v; ins.lastPriceDate = todayStr(); ins.priceSource = "twse"; updated++; }
+    else notFound.push(ins.symbol);
+  }
+  if(updated) markDirty();
+  return {updated, notFound, mapSize:Object.keys(map).length};
+}
+
+async function fetchTwseCloses(){
+  const res = await fetch(TWSE_URL, {cache:"no-store"});
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  const rows = await res.json();
+  if(!Array.isArray(rows)) throw new Error("回傳格式非預期（非陣列）");
+  return applyTwseCloses(rows);
+}
+
+// 開啟即抓：每次開啟嘗試一次，失敗則靜默（手動鈕會顯示錯誤）
+function maybeAutoFetchTwse(){
+  if(twseAutoTried) return;
+  if(!S.settings || S.settings.autoFetchTwse === false) return;
+  let last = null;
+  try{ last = localStorage.getItem(TWSE_FETCH_KEY); }catch(e){}
+  if(last === todayStr()) return; // 今天已成功抓過就不重抓
+  const hasTw = S.instruments.some(ins => ins.market === "TW" && S.positions.some(p => p.instrumentId === ins.id));
+  if(!hasTw) return;
+  twseAutoTried = true;
+  fetchTwseCloses().then(r => {
+    try{ localStorage.setItem(TWSE_FETCH_KEY, todayStr()); }catch(e){}
+    if(r.updated) refresh();
+  }).catch(() => { /* 自動抓取失敗靜默處理 */ });
+}
+
 /* ============ 起始畫面 ============ */
 function renderStart(){
   $("#tabs").innerHTML = "";
@@ -1159,6 +1222,10 @@ function vSettings(){
         <span class="muted">變更後所有匯率須以新基準重新輸入，系統不會自動換算</span></div>
       <label style="display:block;font-size:.75rem;color:var(--ink-soft);margin:12px 0 3px">再平衡提醒門檻（±%）</label>
       <input id="setTh" class="inline-num" value="${Number(st.thresholdPct)||5}" inputmode="decimal">
+      <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin:14px 0 3px;color:var(--ink)">
+        <input type="checkbox" id="setAuto" ${st.autoFetchTwse === false ? "" : "checked"} style="width:auto">
+        開啟 App 時自動更新台股收盤價（上市）</label>
+      <div class="muted">關閉後仍可到「持倉」頁手動更新。此功能只送出股票代號查詢公開收盤價，不會送出你的持有數量或金額。</div>
       <div style="margin-top:12px"><button class="btn primary" id="saveSet">儲存設定</button></div></div>
     <div class="card"><h2>本機儲存與備份</h2>
       <div class="muted" style="margin-bottom:8px">資料自動儲存於此瀏覽器（${
@@ -1179,7 +1246,7 @@ function vSettings(){
     if(!/^[A-Z]{3,8}$/.test(base)){ alert("基準幣別需為 ISO 代碼"); return; }
     if(isNaN(th) || th < 0){ alert("門檻需為非負數字"); return; }
     if(base !== st.baseCurrency && !confirm(`確定將基準幣別改為 ${base}？所有匯率須重新輸入。`)) return;
-    await dbPut("settings", {...st, baseCurrency:base, thresholdPct:th});
+    await dbPut("settings", {...st, baseCurrency:base, thresholdPct:th, autoFetchTwse:$("#setAuto").checked});
     if(base !== st.baseCurrency) await dbPut("fxRates", {id:base, rateToBase:1, updatedAt:todayStr()});
     await refresh(); alert("已更新並自動儲存。");
   };
@@ -1233,7 +1300,7 @@ document.getElementById("privBtn").onclick = () => {
     try{
       deserializeAll(snap);
       S.started = true; S.dirty = false; S.loadedFileName = "（本機自動儲存）";
-      refresh(); return;
+      refresh(); maybeAutoFetchTwse(); return;
     }catch(e){ /* 快取損毀則回到起始畫面 */ }
   }
   renderStart();
