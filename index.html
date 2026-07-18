@@ -142,16 +142,16 @@ const pct1 = n => (n===null||isNaN(n)) ? "—" : (Math.round(n*10)/10).toFixed(1
 const MARKETS = ["TW","US","EU","CRYPTO","OTHER"];
 const INSTR_TYPES = [["stock","個股"],["etf","ETF"],["crypto","加密貨幣"],["other","其他"]];
 const instrKey = (market, symbol) => (market||"").toUpperCase().trim() + ":" + (symbol||"").toUpperCase().trim();
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const SNAPSHOT_KEY = "asset_tracker_snapshot_v1";
 const LASTBK_KEY = "asset_tracker_last_backup_v1";
 let PRIVACY = false; // 隱私模式：遮住所有金額（僅本次開啟有效，不寫入資料檔）
 
 /* ============ 記憶體資料層（檔案為主，localStorage 僅作未儲存變更的臨時快取） ============ */
-const S = {groups:[], accounts:[], instruments:[], positions:[], etf:[], targets:[], fx:[], snapshots:[],
+const S = {groups:[], accounts:[], instruments:[], positions:[], transactions:[], etf:[], targets:[], fx:[], snapshots:[],
            settings:null, meta:null, dirty:false, started:false, loadedFileName:null, persisted:null};
 const STORE_MAP = {groups:"groups", accounts:"accounts", instruments:"instruments",
-  positions:"positions", etfConstituents:"etf", targets:"targets", fxRates:"fx"};
+  positions:"positions", transactions:"transactions", etfConstituents:"etf", targets:"targets", fxRates:"fx"};
 const STORES = Object.keys(STORE_MAP).concat(["settings","meta"]);
 
 function markDirty(){
@@ -180,6 +180,46 @@ async function dbClear(store){
   else S[STORE_MAP[store]] = [];
   markDirty();
 }
+
+/* 交易 → 持倉：以加權平均成本法，由交易明細重算各部位 */
+function rebuildPositions(){
+  const groups = new Map();
+  for(const tx of S.transactions){
+    const k = tx.accountId + "|" + tx.instrumentId;
+    if(!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(tx);
+  }
+  const out = [];
+  for(const [k, txs] of groups){
+    txs.sort((a,b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    let qty = 0, cost = 0;
+    for(const tx of txs){
+      const q = Number(tx.quantity) || 0, pr = Number(tx.price) || 0;
+      if(tx.side === "sell"){
+        const avg = qty > 0 ? cost / qty : 0;
+        cost -= avg * q; qty -= q;
+        if(qty <= 1e-9){ qty = 0; cost = 0; }
+      }else{
+        qty += q; cost += q * pr;
+      }
+    }
+    if(qty > 1e-9){
+      const sep = k.indexOf("|");
+      out.push({id:k, accountId:k.slice(0, sep), instrumentId:k.slice(sep+1), quantity:qty, totalCost:cost});
+    }
+  }
+  S.positions = out;
+}
+async function putTx(tx){
+  const i = S.transactions.findIndex(x => x.id === tx.id);
+  if(i >= 0) S.transactions[i] = tx; else S.transactions.push(tx);
+  rebuildPositions(); markDirty();
+}
+async function delTx(id){
+  S.transactions = S.transactions.filter(x => x.id !== id);
+  rebuildPositions(); markDirty();
+}
+
 async function loadAll(){
   S.groups.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
   S.accounts.sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0));
@@ -187,16 +227,28 @@ async function loadAll(){
 function serializeAll(){
   return {schema_version:SCHEMA_VERSION, saved_at:new Date().toISOString(),
     groups:S.groups, accounts:S.accounts, instruments:S.instruments, positions:S.positions,
-    etfConstituents:S.etf, targets:S.targets, fxRates:S.fx, snapshots:S.snapshots, settings:S.settings, meta:S.meta};
+    transactions:S.transactions, etfConstituents:S.etf, targets:S.targets, fxRates:S.fx, snapshots:S.snapshots, settings:S.settings, meta:S.meta};
 }
 function deserializeAll(d){
   if(!d || !d.schema_version || !Array.isArray(d.accounts)) throw new Error("檔案格式不符（不是本 App 的資料檔）");
   if(d.schema_version > SCHEMA_VERSION) throw new Error("此資料檔來自較新版本的 App");
   S.groups = d.groups||[]; S.accounts = d.accounts||[]; S.instruments = d.instruments||[];
-  S.positions = d.positions||[]; S.etf = d.etfConstituents||[]; S.targets = d.targets||[];
+  S.positions = d.positions||[]; S.transactions = d.transactions||[]; S.etf = d.etfConstituents||[]; S.targets = d.targets||[];
   S.fx = d.fxRates||[]; S.snapshots = d.snapshots||[]; S.settings = d.settings || {id:"app", baseCurrency:"TWD", thresholdPct:5};
   S.meta = d.meta || {id:"schema", version:SCHEMA_VERSION};
   migratePositions();
+  // 無交易但有舊持倉 → 每個持倉轉成一筆初始買入交易
+  if(S.transactions.length === 0 && S.positions.length > 0){
+    for(const p of S.positions){
+      const q = Number(p.quantity) || 0;
+      if(q <= 0) continue;
+      const price = (p.totalCost != null && !isNaN(p.totalCost) && q > 0) ? p.totalCost / q : 0;
+      const ins = S.instruments.find(i => i.id === p.instrumentId);
+      S.transactions.push({id:uid(), accountId:p.accountId, instrumentId:p.instrumentId, side:"buy",
+        quantity:q, price:price, date:(ins && ins.lastPriceDate) || todayStr(), note:"初始持倉（自動轉入）"});
+    }
+  }
+  rebuildPositions();
 }
 async function seedDefaults(){
   const G = (cat,name,so)=>({id:uid(),categoryId:cat,name,sortOrder:so});
@@ -214,7 +266,7 @@ async function seedDefaults(){
     A(g.stock.id,"台股現金","TWD","balance",1), A(g.stock.id,"台股持倉","TWD","holding",2),
     A(g.stock.id,"美股現金","USD","balance",3), A(g.stock.id,"美股持倉","USD","holding",4),
     A(g.stock.id,"歐股現金","EUR","balance",5), A(g.stock.id,"歐股持倉","EUR","holding",6)];
-  S.instruments = []; S.positions = []; S.etf = []; S.targets = []; S.snapshots = [];
+  S.instruments = []; S.positions = []; S.transactions = []; S.etf = []; S.targets = []; S.snapshots = [];
   S.fx = [{id:"TWD", rateToBase:1, updatedAt:todayStr()}];
   S.settings = {id:"app", baseCurrency:"TWD", thresholdPct:5, autoFetchTwse:true};
   S.meta = {id:"schema", version:SCHEMA_VERSION, createdAt:todayStr()};
@@ -559,81 +611,113 @@ function vAccounts(){
     a.balance = v; await dbPut("accounts", a); await refresh();
   });
 }
-/* ============ 持倉 ============ */
+/* ============ 持倉（交易紀錄制） ============ */
 let posAccSel = null;
-function positionForm(acc, pos){
-  const ins = pos ? S.instruments.find(i => i.id === pos.instrumentId) : null;
-  openForm(pos ? "編輯持倉" : "新增持倉",
-    fld("代號（如 2330 / VOO / BTC）", inp("symbol", ins?.symbol, "style='text-transform:uppercase'")) +
+let txExpand = null;
+
+function transactionForm(acc, instrumentId, tx){
+  const ins = instrumentId ? S.instruments.find(i => i.id === instrumentId)
+            : (tx ? S.instruments.find(i => i.id === tx.instrumentId) : null);
+  openForm(tx ? "編輯交易" : "新增交易",
+    fld("代號（如 2330 / VOO）", inp("symbol", ins?.symbol, "style='text-transform:uppercase'")) +
     fld("市場", sel("market", MARKETS.map(m=>[m,m]), ins?.market || (acc.currency==="USD"?"US":acc.currency==="EUR"?"EU":"TW"))) +
     fld("名稱", inp("iname", ins?.name)) +
     fld("類型", sel("itype", INSTR_TYPES, ins?.type || "stock")) +
     fld("計價幣別", inp("icur", ins?.currency || acc.currency, "maxlength=8 style='text-transform:uppercase'")) +
-    fld("數量", inp("quantity", pos?.quantity, "inputmode='decimal'")) +
-    fld("總成本金額（原幣，選填）", inp("totalCost", pos?.totalCost, "inputmode='decimal'")) +
-    fld("目前價格（每單位，原幣，選填；可稍後用貼上更新）", inp("lastPrice", ins?.lastPrice, "inputmode='decimal'")),
+    fld("買賣別", sel("side", [["buy","買入"],["sell","賣出"]], tx?.side || "buy")) +
+    fld("股數", inp("quantity", tx?.quantity, "inputmode='decimal'")) +
+    fld("成交價（每股，原幣，選填）", inp("price", tx?.price, "inputmode='decimal'")) +
+    fld("日期", inp("date", tx?.date || todayStr(), "type='date'")) +
+    fld("備註（可記錄當時決策）", inp("note", tx?.note)),
     async d => {
       if(!d.symbol.trim()) return "請填代號";
       if(!d.icur.trim()) return "請填計價幣別";
       const q = parseFloat(d.quantity);
-      if(isNaN(q)) return "請填數量（需為數字）";
+      if(isNaN(q) || q <= 0) return "請填股數（正數）";
+      if(!d.date) return "請填日期";
       const key = instrKey(d.market, d.symbol);
       let instrument = S.instruments.find(i => i.id === key);
-      const priceIn = (d.lastPrice === "" || d.lastPrice === undefined) ? null : parseFloat(d.lastPrice);
-      const hasNewPrice = priceIn !== null && !isNaN(priceIn);
-      const price = hasNewPrice ? priceIn : (instrument ? Number(instrument.lastPrice) || 0 : 0);
-      instrument = {...(instrument||{}), id:key, symbol:d.symbol.toUpperCase().trim(), market:d.market,
-        name:d.iname.trim() || d.symbol.toUpperCase().trim(), type:d.itype,
-        currency:d.icur.toUpperCase().trim(), lastPrice:price,
-        lastPriceDate: hasNewPrice ? todayStr() : (instrument ? instrument.lastPriceDate : ""),
-        priceSource: hasNewPrice ? "manual" : (instrument ? instrument.priceSource : "manual")};
+      const priceIn = (d.price === "" || d.price === undefined) ? null : parseFloat(d.price);
+      const hasPrice = priceIn !== null && !isNaN(priceIn);
+      if(!instrument){
+        instrument = {id:key, symbol:d.symbol.toUpperCase().trim(), market:d.market,
+          name:d.iname.trim() || d.symbol.toUpperCase().trim(), type:d.itype, currency:d.icur.toUpperCase().trim(),
+          lastPrice: hasPrice ? priceIn : 0, lastPriceDate: hasPrice ? todayStr() : "", priceSource:"manual"};
+      }else{
+        instrument = {...instrument, symbol:d.symbol.toUpperCase().trim(), market:d.market,
+          name:d.iname.trim() || instrument.name, type:d.itype, currency:d.icur.toUpperCase().trim()};
+        // 不覆蓋現價（現價由「貼上更新」或既有資料維護）
+      }
       await dbPut("instruments", instrument);
-      const tc = (d.totalCost === "" || d.totalCost === undefined) ? null : parseFloat(d.totalCost);
-      const obj = pos ? {...pos, instrumentId:key, quantity:q, totalCost:isNaN(tc)?null:tc}
-                      : {id:uid(), accountId:acc.id, instrumentId:key, quantity:q, totalCost:isNaN(tc)?null:tc};
-      await dbPut("positions", obj);
+      const base = {accountId:acc.id, instrumentId:key, side:d.side, quantity:q, price:hasPrice?priceIn:0, date:d.date, note:(d.note||"").trim()};
+      await putTx(tx ? {...tx, ...base} : {id:uid(), ...base});
+      txExpand = key;
     });
 }
+
 function vPositions(){
   const hAccs = S.accounts.filter(a => a.kind === "holding");
   if(hAccs.length === 0){ $("#main").innerHTML = `<div class="card muted">尚無持倉型帳戶。到「帳戶」頁新增，型態選「持倉型」。</div>`; return; }
   if(!posAccSel || !hAccs.find(a => a.id === posAccSel)) posAccSel = hAccs[0].id;
   const acc = hAccs.find(a => a.id === posAccSel);
-  const rows = S.positions.filter(p => p.accountId === acc.id).map(p => {
+  const poss = S.positions.filter(p => p.accountId === acc.id);
+  const rows = poss.map(p => {
     const ins = S.instruments.find(i => i.id === p.instrumentId) || {};
-    const mv = (Number(p.quantity)||0) * (Number(ins.lastPrice)||0);
-    const hasCost = p.totalCost !== null && p.totalCost !== undefined && p.totalCost !== "" && !isNaN(Number(p.totalCost));
-    const cost = hasCost ? Number(p.totalCost) : null;
-    const pl = cost !== null ? mv - cost : null;
-    const plPct = (cost !== null && cost > 0) ? pl / cost * 100 : null;
-    const plCls = pl === null ? "" : (pl >= 0 ? "pl-up" : "pl-down");
-    return `<tr><td>${esc(ins.symbol)} <span class="badge grey">${esc(ins.market)}</span>${ins.type==="etf"?' <span class="badge">ETF</span>':""}</td>
-      <td>${esc(ins.name)}</td><td class="r num">${fmtN(p.quantity,2)}</td>
-      <td class="r num">${fmtN(ins.lastPrice,2)}<div class="muted">${esc(ins.lastPriceDate||"")}</div></td>
-      <td class="r num">${fmtN(mv,2)} ${esc(ins.currency)}</td>
-      <td class="r num ${plCls}">${pl === null ? "—" : (pl >= 0 ? "+" : "") + fmtN(pl,2)}
-        <div style="font-size:.72rem">${plPct === null ? "" : (PRIVACY ? "" : (plPct >= 0 ? "+" : "") + pct1(plPct))}</div></td>
-      <td class="r"><button class="btn sm" data-pedit="${p.id}">編輯</button>
-      <button class="btn sm danger" data-pdel="${p.id}">刪除</button></td></tr>`;
+    const qty = Number(p.quantity) || 0;
+    const avg = (qty > 0 && p.totalCost != null) ? p.totalCost / qty : null;
+    const mv = qty * (Number(ins.lastPrice) || 0);
+    const cost = p.totalCost != null ? p.totalCost : null;
+    const pl = cost != null ? mv - cost : null;
+    const plPct = (cost != null && cost > 0) ? pl / cost * 100 : null;
+    const plCls = pl == null ? "" : (pl >= 0 ? "pl-up" : "pl-down");
+    const txs = S.transactions.filter(t => t.accountId === acc.id && t.instrumentId === p.instrumentId)
+                  .sort((a,b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    const expanded = txExpand === p.instrumentId;
+    return `<tr>
+      <td>${esc(ins.symbol)} <span class="badge grey">${esc(ins.market)}</span>${ins.type==="etf"?' <span class="badge">ETF</span>':""}</td>
+      <td>${esc(ins.name)}</td>
+      <td class="r num">${fmtN(qty,2)}</td>
+      <td class="r num">${fmtN(avg,2)}</td>
+      <td class="r num">${fmtN(ins.lastPrice,2)}</td>
+      <td class="r num">${fmtN(mv,2)}</td>
+      <td class="r num ${plCls}">${pl == null ? "—" : (pl >= 0 ? "+" : "") + fmtN(pl,2)}
+        <div style="font-size:.72rem">${plPct == null ? "" : (PRIVACY ? "" : (plPct >= 0 ? "+" : "") + pct1(plPct))}</div></td>
+      <td class="r"><button class="btn sm" data-txtoggle="${esc(p.instrumentId)}">${expanded ? "收合" : "明細"}</button></td>
+    </tr>
+    ${expanded ? `<tr><td colspan="8" style="background:#f7f8f9;padding:8px">
+      <div class="row between" style="margin-bottom:6px"><strong style="font-size:.82rem">交易紀錄（${txs.length} 筆）</strong>
+        <button class="btn sm primary" data-txadd="${esc(p.instrumentId)}">＋交易</button></div>
+      <div class="tbl-wrap"><table>
+        <tr><th>日期</th><th>買賣</th><th class="r">股數</th><th class="r">成交價</th><th>備註</th><th></th></tr>
+        ${txs.map(t => `<tr>
+          <td class="num">${esc(t.date)}</td>
+          <td>${t.side==="sell" ? '<span style="color:var(--pos)">賣</span>' : '<span style="color:var(--danger)">買</span>'}</td>
+          <td class="r num">${fmtN(t.quantity,2)}</td>
+          <td class="r num">${fmtN(t.price,2)}</td>
+          <td>${esc(t.note||"")}</td>
+          <td class="r"><button class="btn sm" data-txedit="${t.id}">編輯</button> <button class="btn sm danger" data-txdel="${t.id}">刪除</button></td>
+        </tr>`).join("")}
+      </table></div></td></tr>` : ""}`;
   }).join("");
   $("#main").innerHTML = `
     <div class="row between" style="margin-bottom:10px">
       <select id="posAcc" style="font:inherit;font-size:.85rem;padding:6px 9px;border:1px solid var(--line);border-radius:7px">
         ${hAccs.map(a => `<option value="${a.id}" ${a.id===posAccSel?"selected":""}>${esc(a.name)}（${esc(a.currency)}）</option>`).join("")}
       </select>
-      <span class="row"><button class="btn" id="twseUpd">↻ 貼上更新台股收盤價</button><button class="btn primary" id="addPos">＋新增持倉</button></span></div>
+      <span class="row"><button class="btn" id="twseUpd">↻ 貼上更新台股收盤價</button><button class="btn primary" id="addTx">＋新增交易</button></span></div>
     <div class="card"><div class="tbl-wrap"><table>
-      <tr><th>代號</th><th>名稱</th><th class="r">數量</th><th class="r">價格</th><th class="r">市值（原幣）</th><th class="r">損益（原幣）</th><th></th></tr>
-      ${rows || `<tr><td colspan="7" class="muted">此帳戶尚無持倉。可按「＋新增持倉」，或到「匯入」頁整批匯入。</td></tr>`}
+      <tr><th>代號</th><th>名稱</th><th class="r">淨股數</th><th class="r">均價</th><th class="r">現價</th><th class="r">市值</th><th class="r">損益</th><th></th></tr>
+      ${rows || `<tr><td colspan="8" class="muted">此帳戶尚無持倉。按「＋新增交易」記錄第一筆買入。</td></tr>`}
     </table></div></div>
-    <div class="muted">價格為手動輸入（MVP）。同一檔標的（市場＋代號）在所有帳戶共用同一個價格。</div>`;
-  $("#posAcc").onchange = e => { posAccSel = e.target.value; refresh(); };
-  $("#addPos").onclick = () => positionForm(acc, null);
-  const tb = $("#twseUpd");
-  if(tb) tb.onclick = () => openPriceUpdate();
-  document.querySelectorAll("[data-pedit]").forEach(b => b.onclick = () => positionForm(acc, S.positions.find(p => p.id === b.dataset.pedit)));
-  document.querySelectorAll("[data-pdel]").forEach(b => b.onclick = async () => {
-    if(confirm("確定刪除此持倉？")){ await dbDelete("positions", b.dataset.pdel); await refresh(); }
+    <div class="muted">數量與均價由交易紀錄自動加總（加權平均成本）。點各列「明細」可展開、新增或修改交易，回顧當時決策。</div>`;
+  $("#posAcc").onchange = e => { posAccSel = e.target.value; txExpand = null; refresh(); };
+  $("#addTx").onclick = () => transactionForm(acc, null, null);
+  const tb = $("#twseUpd"); if(tb) tb.onclick = () => openPriceUpdate();
+  document.querySelectorAll("[data-txtoggle]").forEach(b => b.onclick = () => { txExpand = (txExpand === b.dataset.txtoggle) ? null : b.dataset.txtoggle; refresh(); });
+  document.querySelectorAll("[data-txadd]").forEach(b => b.onclick = () => transactionForm(acc, b.dataset.txadd, null));
+  document.querySelectorAll("[data-txedit]").forEach(b => b.onclick = () => transactionForm(acc, null, S.transactions.find(t => t.id === b.dataset.txedit)));
+  document.querySelectorAll("[data-txdel]").forEach(b => b.onclick = async () => {
+    if(confirm("確定刪除這筆交易？部位會重新加總。")){ await delTx(b.dataset.txdel); await refresh(); }
   });
 }
 
