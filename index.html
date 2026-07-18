@@ -496,8 +496,8 @@ function accountForm(acc){
   const groups = S.groups.map(g => [g.id, (g.categoryId==="liability"?"負債｜":"權益｜") + g.name]);
   openForm(acc ? "編輯帳戶" : "新增帳戶",
     fld("所屬群組", sel("groupId", groups, acc?.groupId)) +
-    fld("帳戶名稱", inp("name", acc?.name, "required")) +
-    fld("幣別（ISO 代碼，如 TWD/USD/EUR）", inp("currency", acc?.currency || "TWD", "required maxlength=8 style='text-transform:uppercase'")) +
+    fld("帳戶名稱", inp("name", acc?.name, "")) +
+    fld("幣別（ISO 代碼，如 TWD/USD/EUR）", inp("currency", acc?.currency || "TWD", "maxlength=8 style='text-transform:uppercase'")) +
     fld("帳戶型態", sel("kind", [["balance","金額型（直接輸入餘額）"],["holding","持倉型（記個股/ETF明細）"]], acc?.kind || "balance")) +
     fld("備註", inp("note", acc?.note)),
     async d => {
@@ -510,7 +510,7 @@ function accountForm(acc){
 function groupForm(){
   openForm("新增群組",
     fld("所屬類別", sel("categoryId", [["equity","權益"],["liability","負債"]], "equity")) +
-    fld("群組名稱", inp("name", "", "required")),
+    fld("群組名稱", inp("name", "", "")),
     async d => {
       if(!d.name.trim()) return "名稱不可空白";
       await dbPut("groups", {id:uid(), categoryId:d.categoryId, name:d.name.trim(), sortOrder:Date.now()%100000});
@@ -564,23 +564,29 @@ let posAccSel = null;
 function positionForm(acc, pos){
   const ins = pos ? S.instruments.find(i => i.id === pos.instrumentId) : null;
   openForm(pos ? "編輯持倉" : "新增持倉",
-    fld("代號（如 2330 / VOO / BTC）", inp("symbol", ins?.symbol, "required style='text-transform:uppercase'")) +
+    fld("代號（如 2330 / VOO / BTC）", inp("symbol", ins?.symbol, "style='text-transform:uppercase'")) +
     fld("市場", sel("market", MARKETS.map(m=>[m,m]), ins?.market || (acc.currency==="USD"?"US":acc.currency==="EUR"?"EU":"TW"))) +
     fld("名稱", inp("iname", ins?.name)) +
     fld("類型", sel("itype", INSTR_TYPES, ins?.type || "stock")) +
-    fld("計價幣別", inp("icur", ins?.currency || acc.currency, "required maxlength=8 style='text-transform:uppercase'")) +
-    fld("數量", inp("quantity", pos?.quantity, "required inputmode='decimal'")) +
+    fld("計價幣別", inp("icur", ins?.currency || acc.currency, "maxlength=8 style='text-transform:uppercase'")) +
+    fld("數量", inp("quantity", pos?.quantity, "inputmode='decimal'")) +
     fld("總成本金額（原幣，選填）", inp("totalCost", pos?.totalCost, "inputmode='decimal'")) +
-    fld("目前價格（每單位，原幣）", inp("lastPrice", ins?.lastPrice, "required inputmode='decimal'")),
+    fld("目前價格（每單位，原幣，選填；可稍後用貼上更新）", inp("lastPrice", ins?.lastPrice, "inputmode='decimal'")),
     async d => {
-      const q = parseFloat(d.quantity), price = parseFloat(d.lastPrice);
-      if(isNaN(q) || isNaN(price)) return "數量與價格需為數字";
+      if(!d.symbol.trim()) return "請填代號";
+      if(!d.icur.trim()) return "請填計價幣別";
+      const q = parseFloat(d.quantity);
+      if(isNaN(q)) return "請填數量（需為數字）";
       const key = instrKey(d.market, d.symbol);
-      if(!d.symbol.trim()) return "代號不可空白";
       let instrument = S.instruments.find(i => i.id === key);
+      const priceIn = (d.lastPrice === "" || d.lastPrice === undefined) ? null : parseFloat(d.lastPrice);
+      const hasNewPrice = priceIn !== null && !isNaN(priceIn);
+      const price = hasNewPrice ? priceIn : (instrument ? Number(instrument.lastPrice) || 0 : 0);
       instrument = {...(instrument||{}), id:key, symbol:d.symbol.toUpperCase().trim(), market:d.market,
         name:d.iname.trim() || d.symbol.toUpperCase().trim(), type:d.itype,
-        currency:d.icur.toUpperCase().trim(), lastPrice:price, lastPriceDate:todayStr(), priceSource:"manual"};
+        currency:d.icur.toUpperCase().trim(), lastPrice:price,
+        lastPriceDate: hasNewPrice ? todayStr() : (instrument ? instrument.lastPriceDate : ""),
+        priceSource: hasNewPrice ? "manual" : (instrument ? instrument.priceSource : "manual")};
       await dbPut("instruments", instrument);
       const tc = (d.totalCost === "" || d.totalCost === undefined) ? null : parseFloat(d.totalCost);
       const obj = pos ? {...pos, instrumentId:key, quantity:q, totalCost:isNaN(tc)?null:tc}
@@ -653,9 +659,9 @@ function vExposure(){
 /* ============ 配置（目標 vs 實際） ============ */
 function targetForm(t){
   openForm(t ? "編輯目標配置" : "新增目標配置",
-    fld("代號", inp("symbol", t?.symbol, "required style='text-transform:uppercase'" + (t?"disabled":""))) +
+    fld("代號", inp("symbol", t?.symbol, "style='text-transform:uppercase'" + (t?"disabled":""))) +
     fld("市場", t ? `<input value="${esc(t.market)}" disabled>` : sel("market", MARKETS.map(m=>[m,m]), "TW")) +
-    fld("目標 %（0–100）", inp("targetPct", t?.targetPct, "required inputmode='decimal'")) +
+    fld("目標 %（0–100）", inp("targetPct", t?.targetPct, "inputmode='decimal'")) +
     fld("備註", inp("note", t?.note)),
     async d => {
       const p = parseFloat(d.targetPct);
@@ -702,7 +708,7 @@ function vAlloc(){
   document.querySelectorAll("[data-tedit]").forEach(b => b.onclick = () => targetForm(S.targets.find(t => t.id === b.dataset.tedit)));
   document.querySelectorAll("[data-tadd]").forEach(b => b.onclick = () => {
     const e = exposures().list.find(x => x.key === b.dataset.tadd);
-    openForm("設定目標配置", fld("代號", `<input value="${esc(e.symbol)}" disabled>`) + fld("目標 %", inp("targetPct","","required inputmode='decimal'")),
+    openForm("設定目標配置", fld("代號", `<input value="${esc(e.symbol)}" disabled>`) + fld("目標 %", inp("targetPct","","inputmode='decimal'")),
       async d => {
         const p = parseFloat(d.targetPct);
         if(isNaN(p) || p < 0 || p > 100) return "目標 % 需為 0–100 的數字";
@@ -740,9 +746,9 @@ function vEtf(){
       </table></div></div>`;
   $("#etfSel").onchange = e => { etfSel = e.target.value; refresh(); };
   $("#addCon").onclick = () => openForm("新增成分",
-    fld("成分代號", inp("sym","","required style='text-transform:uppercase'")) +
+    fld("成分代號", inp("sym","","style='text-transform:uppercase'")) +
     fld("成分市場", sel("mkt", MARKETS.map(m=>[m,m]), ins.market)) +
-    fld("名稱", inp("nm","")) + fld("權重 %", inp("w","","required inputmode='decimal'")),
+    fld("名稱", inp("nm","")) + fld("權重 %", inp("w","","inputmode='decimal'")),
     async d => {
       const w = parseFloat(d.w);
       if(!d.sym.trim() || isNaN(w)) return "代號與權重必填";
@@ -781,8 +787,8 @@ function vFx(){
     await refresh();
   });
   $("#addFx").onclick = () => openForm("新增幣別",
-    fld("幣別代碼（ISO 4217，如 JPY）", inp("code","","required maxlength=8 style='text-transform:uppercase'")) +
-    fld("對 " + base + " 匯率", inp("rate","","required inputmode='decimal'")),
+    fld("幣別代碼（ISO 4217，如 JPY）", inp("code","","maxlength=8 style='text-transform:uppercase'")) +
+    fld("對 " + base + " 匯率", inp("rate","","inputmode='decimal'")),
     async d => {
       const v = parseFloat(d.rate);
       if(!d.code.trim() || isNaN(v) || v <= 0) return "請輸入幣別與正數匯率";
