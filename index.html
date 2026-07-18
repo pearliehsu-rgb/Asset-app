@@ -346,7 +346,6 @@ function renderTabs(){
 async function refresh(){
   if(!S.started){ renderStart(); return; }
   await loadAll(); renderTabs(); updateSaveUI(); VIEWS[currentTab]();
-  if(typeof maybeAutoFetchTwse === "function") maybeAutoFetchTwse();
 }
 function updateSaveUI(){
   const pb = $("#privBtn"); if(pb) pb.style.display = S.started ? "" : "none";
@@ -616,7 +615,7 @@ function vPositions(){
       <select id="posAcc" style="font:inherit;font-size:.85rem;padding:6px 9px;border:1px solid var(--line);border-radius:7px">
         ${hAccs.map(a => `<option value="${a.id}" ${a.id===posAccSel?"selected":""}>${esc(a.name)}（${esc(a.currency)}）</option>`).join("")}
       </select>
-      <span class="row"><button class="btn" id="twseUpd">↻ 更新台股收盤價</button><button class="btn primary" id="addPos">＋新增持倉</button></span></div>
+      <span class="row"><button class="btn" id="twseUpd">↻ 貼上更新台股收盤價</button><button class="btn primary" id="addPos">＋新增持倉</button></span></div>
     <div class="card"><div class="tbl-wrap"><table>
       <tr><th>代號</th><th>名稱</th><th class="r">數量</th><th class="r">價格</th><th class="r">市值（原幣）</th><th class="r">損益（原幣）</th><th></th></tr>
       ${rows || `<tr><td colspan="7" class="muted">此帳戶尚無持倉。可按「＋新增持倉」，或到「匯入」頁整批匯入。</td></tr>`}
@@ -625,18 +624,7 @@ function vPositions(){
   $("#posAcc").onchange = e => { posAccSel = e.target.value; refresh(); };
   $("#addPos").onclick = () => positionForm(acc, null);
   const tb = $("#twseUpd");
-  if(tb) tb.onclick = async () => {
-    tb.disabled = true; const orig = tb.textContent; tb.textContent = "更新中…";
-    try{
-      const r = await fetchTwseCloses();
-      try{ localStorage.setItem(TWSE_FETCH_KEY, todayStr()); }catch(e){}
-      await refresh();
-      alert(`已更新 ${r.updated} 檔台股收盤價（抓取於 ${new Date().toLocaleString("zh-TW")}）。`
-        + (r.notFound.length ? `\n\n未更新 ${r.notFound.length} 檔（此來源僅含上市，未含上櫃/興櫃；請改用 CSV）：${r.notFound.join("、")}` : ""));
-    }catch(e){
-      alert("無法自動抓取台股收盤價。\n\n可能原因：此資料源未開放瀏覽器跨域存取（CORS）、暫時性網路問題，或來源異動。\n請改用「匯入」頁的 CSV 更新價格。\n\n技術訊息：" + e.message);
-    }finally{ tb.disabled = false; tb.textContent = orig; }
-  };
+  if(tb) tb.onclick = () => openPriceUpdate();
   document.querySelectorAll("[data-pedit]").forEach(b => b.onclick = () => positionForm(acc, S.positions.find(p => p.id === b.dataset.pedit)));
   document.querySelectorAll("[data-pdel]").forEach(b => b.onclick = async () => {
     if(confirm("確定刪除此持倉？")){ await dbDelete("positions", b.dataset.pdel); await refresh(); }
@@ -1121,24 +1109,51 @@ const TWSE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL";
 const TWSE_FETCH_KEY = "asset_tracker_twse_fetch_v1";
 let twseAutoTried = false;
 
-// 純函式：把抓回來的資料套用到持有的台股標的（可單元測試）
+// 共用：把 {代號:收盤價} 套用到持有的台股標的（貼上更新、未來 proxy 都用）
+function applyCloseMap(map, source){
+  let updated = 0; const notFound = [];
+  for(const ins of S.instruments){
+    if(ins.market !== "TW") continue;
+    if(!S.positions.some(p => p.instrumentId === ins.id)) continue; // 只更新有持倉的
+    const v = map[String(ins.symbol).trim().toUpperCase()];
+    if(v !== undefined && isFinite(v) && v > 0){ ins.lastPrice = v; ins.lastPriceDate = todayStr(); ins.priceSource = source || "csv"; updated++; }
+    else notFound.push(ins.symbol);
+  }
+  if(updated) markDirty();
+  return {updated, notFound};
+}
 function applyTwseCloses(rows){
   const map = {};
   for(const r of rows){
     if(!r || r.Code == null) continue;
     const v = parseFloat(String(r.ClosingPrice).replace(/,/g, ""));
-    if(isFinite(v) && v > 0) map[String(r.Code).trim()] = v;
+    if(isFinite(v) && v > 0) map[String(r.Code).trim().toUpperCase()] = v;
   }
-  let updated = 0; const notFound = [];
-  for(const ins of S.instruments){
-    if(ins.market !== "TW") continue;
-    if(!S.positions.some(p => p.instrumentId === ins.id)) continue; // 只更新有持倉的
-    const v = map[String(ins.symbol).trim()];
-    if(v !== undefined){ ins.lastPrice = v; ins.lastPriceDate = todayStr(); ins.priceSource = "twse"; updated++; }
-    else notFound.push(ins.symbol);
+  return applyCloseMap(map, "twse");
+}
+
+// 解析貼上的台股收盤價文字：辨識「代號」「收盤價」欄位，容忍多餘欄位
+function parsePriceText(text){
+  const rows = parseCSV(text);
+  if(!rows.length) return {map:{}, count:0, needHeader:false, empty:true};
+  const header = rows[0].map(h => String(h).trim());
+  const findIdx = kws => header.findIndex(h => kws.some(k => h.toLowerCase().includes(k)));
+  let codeIdx = findIdx(["代號","code"]);
+  let priceIdx = findIdx(["收盤","close"]);
+  let start = 0;
+  const maxCols = rows.reduce((m,r) => Math.max(m, r.length), 0);
+  if(codeIdx >= 0 && priceIdx >= 0){ start = 1; }
+  else if(maxCols <= 2){ codeIdx = 0; priceIdx = 1; }   // 兩欄：代號,收盤價
+  else return {map:{}, count:0, needHeader:true };      // 多欄又無標題 → 請包含標題列
+  const map = {}; let count = 0;
+  for(let i = start; i < rows.length; i++){
+    const cells = rows[i];
+    let code = String(cells[codeIdx] ?? "").trim().toUpperCase().replace(/^="?|"?$/g, "");
+    const price = parseFloat(String(cells[priceIdx] ?? "").replace(/,/g, "").replace(/[^0-9.\-]/g, ""));
+    if(!/^\d{3,6}[A-Z]?$/.test(code)) continue;         // 過濾標題/雜訊列
+    if(isFinite(price) && price > 0){ map[code] = price; count++; }
   }
-  if(updated) markDirty();
-  return {updated, notFound, mapSize:Object.keys(map).length};
+  return {map, count, needHeader:false};
 }
 
 async function fetchTwseCloses(){
@@ -1163,6 +1178,54 @@ function maybeAutoFetchTwse(){
     try{ localStorage.setItem(TWSE_FETCH_KEY, todayStr()); }catch(e){}
     if(r.updated) refresh();
   }).catch(() => { /* 自動抓取失敗靜默處理 */ });
+}
+
+/* ============ 貼上更新台股收盤價 ============ */
+function openPriceUpdate(){
+  $("#dlgTitle").textContent = "貼上更新台股收盤價";
+  const f = $("#dlgForm");
+  const heldTw = S.instruments.filter(ins => ins.market === "TW" && S.positions.some(p => p.instrumentId === ins.id));
+  f.innerHTML = `
+    <div class="muted" style="margin-bottom:8px">從證交所「每日收盤行情」或券商複製表格貼上即可，程式會自動找出「代號」與「收盤價」欄位。也可只貼兩欄：代號,收盤價。</div>
+    <div class="muted" style="margin-bottom:8px">目前持有台股 ${heldTw.length} 檔。只會更新你持有的標的，其餘忽略。</div>
+    <textarea class="paste" id="puTa" style="min-height:150px" placeholder="範例：\n證券代號,證券名稱,...,收盤價,...\n2330,台積電,...,1085,...\n或：\n2330,1085\n0050,195.5"></textarea>
+    <div class="row" style="margin-top:8px"><button type="button" class="btn primary" id="puParse">解析預覽</button></div>
+    <div id="puResult"></div>
+    <div class="dlg-actions"><button type="button" class="btn" id="puClose">關閉</button></div>`;
+  f.onsubmit = e => e.preventDefault();
+  $("#puClose").onclick = () => dlg().close();
+  $("#puParse").onclick = () => {
+    const res = parsePriceText($("#puTa").value);
+    const box = $("#puResult");
+    if(res.empty){ box.innerHTML = `<div class="banner" style="margin-top:10px">沒有內容，請先貼上。</div>`; return; }
+    if(res.needHeader){ box.innerHTML = `<div class="banner" style="margin-top:10px">看起來有多個欄位但找不到標題。請把包含「代號」與「收盤價」的<strong>標題列</strong>一起貼上，或只貼「代號,收盤價」兩欄。</div>`; return; }
+    if(res.count === 0){ box.innerHTML = `<div class="banner" style="margin-top:10px">沒有解析到有效的代號與收盤價，請確認格式。</div>`; return; }
+    const matched = [], missing = [];
+    for(const ins of S.instruments){
+      if(ins.market !== "TW") continue;
+      if(!S.positions.some(p => p.instrumentId === ins.id)) continue;
+      const v = res.map[String(ins.symbol).trim().toUpperCase()];
+      if(v !== undefined) matched.push({ins, v});
+      else missing.push(ins.symbol);
+    }
+    if(matched.length === 0){ box.innerHTML = `<div class="banner" style="margin-top:10px">貼上的資料解析到 ${res.count} 筆，但沒有一筆對應到你持有的台股。請確認代號是否一致。</div>`; return; }
+    box.innerHTML = `
+      <div class="banner ok" style="margin-top:10px">解析到 ${res.count} 筆報價，將更新以下 ${matched.length} 檔持有台股：</div>
+      <div class="import-preview"><table>
+        <tr><th>代號</th><th>名稱</th><th class="r">原價</th><th class="r">新收盤</th></tr>
+        ${matched.map(m => `<tr><td>${esc(m.ins.symbol)}</td><td>${esc(m.ins.name)}</td>
+          <td class="r num">${fmtN(m.ins.lastPrice,2)}</td><td class="r num" style="color:var(--accent)">${fmtN(m.v,2)}</td></tr>`).join("")}
+      </table></div>
+      ${missing.length ? `<div class="muted" style="margin-top:6px">未含在貼上資料、維持原價：${missing.map(esc).join("、")}</div>` : ""}
+      <div style="margin-top:10px"><button type="button" class="btn primary" id="puCommit">確認更新 ${matched.length} 檔</button></div>`;
+    $("#puCommit").onclick = async () => {
+      const r = applyCloseMap(res.map, "csv");
+      dlg().close();
+      await refresh();
+      alert(`已更新 ${r.updated} 檔台股收盤價。`);
+    };
+  };
+  dlg().showModal();
 }
 
 /* ============ 起始畫面 ============ */
@@ -1222,10 +1285,6 @@ function vSettings(){
         <span class="muted">變更後所有匯率須以新基準重新輸入，系統不會自動換算</span></div>
       <label style="display:block;font-size:.75rem;color:var(--ink-soft);margin:12px 0 3px">再平衡提醒門檻（±%）</label>
       <input id="setTh" class="inline-num" value="${Number(st.thresholdPct)||5}" inputmode="decimal">
-      <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;margin:14px 0 3px;color:var(--ink)">
-        <input type="checkbox" id="setAuto" ${st.autoFetchTwse === false ? "" : "checked"} style="width:auto">
-        開啟 App 時自動更新台股收盤價（上市）</label>
-      <div class="muted">關閉後仍可到「持倉」頁手動更新。此功能只送出股票代號查詢公開收盤價，不會送出你的持有數量或金額。</div>
       <div style="margin-top:12px"><button class="btn primary" id="saveSet">儲存設定</button></div></div>
     <div class="card"><h2>本機儲存與備份</h2>
       <div class="muted" style="margin-bottom:8px">資料自動儲存於此瀏覽器（${
@@ -1246,7 +1305,7 @@ function vSettings(){
     if(!/^[A-Z]{3,8}$/.test(base)){ alert("基準幣別需為 ISO 代碼"); return; }
     if(isNaN(th) || th < 0){ alert("門檻需為非負數字"); return; }
     if(base !== st.baseCurrency && !confirm(`確定將基準幣別改為 ${base}？所有匯率須重新輸入。`)) return;
-    await dbPut("settings", {...st, baseCurrency:base, thresholdPct:th, autoFetchTwse:$("#setAuto").checked});
+    await dbPut("settings", {...st, baseCurrency:base, thresholdPct:th});
     if(base !== st.baseCurrency) await dbPut("fxRates", {id:base, rateToBase:1, updatedAt:todayStr()});
     await refresh(); alert("已更新並自動儲存。");
   };
@@ -1300,7 +1359,7 @@ document.getElementById("privBtn").onclick = () => {
     try{
       deserializeAll(snap);
       S.started = true; S.dirty = false; S.loadedFileName = "（本機自動儲存）";
-      refresh(); maybeAutoFetchTwse(); return;
+      refresh(); return;
     }catch(e){ /* 快取損毀則回到起始畫面 */ }
   }
   renderStart();
