@@ -319,15 +319,19 @@ function accountBase(acc, missing){
 }
 function totals(){
   const missing = new Set();
-  let debt = 0, equity = 0;
+  let debt = 0, equity = 0, holdingsMV = 0;
   const groupTotals = {};
   for(const g of S.groups){
     let gt = 0;
-    for(const a of S.accounts.filter(a => a.groupId === g.id)) gt += accountBase(a, missing);
+    for(const a of S.accounts.filter(a => a.groupId === g.id)){
+      const v = accountBase(a, missing);
+      gt += v;
+      if(a.kind === "holding") holdingsMV += v;
+    }
     groupTotals[g.id] = gt;
     if(g.categoryId === "liability") debt += gt; else equity += gt;
   }
-  return {debt, equity, totalAssets:equity, netWorth:equity - debt, groupTotals, missing};
+  return {debt, equity, holdingsMV, totalAssets:equity, netWorth:equity - debt, groupTotals, missing};
 }
 function exposures(){
   const missing = new Set();
@@ -522,8 +526,8 @@ function vOverview(){
     <div class="grid4" style="margin-bottom:14px">
       <div class="stat"><div class="lbl">總資產（${esc(base)}）</div><div class="val num">${fmtN(t.totalAssets)}</div></div>
       <div class="stat net"><div class="lbl">淨資產（${esc(base)}）</div><div class="val num">${fmtN(t.netWorth)}</div></div>
+      <div class="stat"><div class="lbl">股票市值（${esc(base)}）</div><div class="val num">${fmtN(t.holdingsMV)}</div></div>
       <div class="stat debt"><div class="lbl">負債（${esc(base)}）</div><div class="val num">${fmtN(t.debt)}</div></div>
-      <div class="stat"><div class="lbl">權益（${esc(base)}）</div><div class="val num">${fmtN(t.equity)}</div></div>
     </div>
     ${netHistoryCard()}
     <div class="card"><h2>權益組成</h2>
