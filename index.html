@@ -138,6 +138,7 @@ body.privacy input.inline-num{filter:blur(6px);}
 <script>
 
 
+
 "use strict";
 /* ============ 基本工具 ============ */
 const $ = s => document.querySelector(s);
@@ -492,24 +493,20 @@ function stockRegionData(){
   return Object.keys(b).filter(k => b[k] > 0).map(k => ({name:names[k], value:b[k], color:colors[k]}));
 }
 
-function twTagBreakdown(){
+function twTagStats(){
   const missing = new Set();
-  const b = {long:0, trend:0, none:0};
+  const b = {long:{cost:0,mv:0}, trend:{cost:0,mv:0}, none:{cost:0,mv:0}};
   for(const acc of S.accounts.filter(a => a.kind === "holding")){
     for(const p of S.positions.filter(p => p.accountId === acc.id)){
       const ins = S.instruments.find(i => i.id === p.instrumentId);
       if(!ins || ins.market !== "TW") continue;
-      const v = toBase((Number(p.quantity)||0) * (Number(ins.lastPrice)||0), ins.currency, missing);
-      if(v <= 0) continue;
+      const mv = toBase((Number(p.quantity)||0) * (Number(ins.lastPrice)||0), ins.currency, missing);
+      const cost = p.totalCost != null ? toBase(Number(p.totalCost)||0, ins.currency, missing) : 0;
       const key = ins.tag === "long" ? "long" : ins.tag === "trend" ? "trend" : "none";
-      b[key] += v;
+      b[key].mv += mv; b[key].cost += cost;
     }
   }
-  const items = [];
-  if(b.long > 0) items.push({name:"長持", value:b.long, color:"#2c6bb3"});
-  if(b.trend > 0) items.push({name:"趨勢", value:b.trend, color:"#c58a1e"});
-  if(b.none > 0) items.push({name:"未分類", value:b.none, color:"#9aa0a6"});
-  return items;
+  return b;
 }
 
 function twTopHoldings(n){
@@ -564,12 +561,48 @@ function vOverview(){
         : `<div class="muted">尚無持倉。到「持倉」頁新增股票／ETF 後即顯示。</div>`}</div>`;
     })()}
     ${(() => {
-      const items = twTagBreakdown();
-      const d = makeDonut(items, "台股長持與趨勢佔比");
+      const st = twTagStats();
+      const items = [];
+      if(st.long.mv > 0) items.push({name:"長持", value:st.long.mv, color:"#2c6bb3"});
+      if(st.trend.mv > 0) items.push({name:"趨勢", value:st.trend.mv, color:"#c58a1e"});
+      if(st.none.mv > 0) items.push({name:"未分類", value:st.none.mv, color:"#9aa0a6"});
+      const d = makeDonut(items, "台股長持與趨勢市值佔比");
+      const totCost = st.long.cost + st.trend.cost + st.none.cost;
+      const totMv = st.long.mv + st.trend.mv + st.none.mv;
+      const pctC = v => totCost > 0 ? pct1(v/totCost*100) : "—";
+      const pctM = v => totMv > 0 ? pct1(v/totMv*100) : "—";
+      const ret = (mv,cost) => cost > 0 ? (mv-cost)/cost*100 : null;
+      const trows = [["長持",st.long],["趨勢",st.trend],["未分類",st.none]]
+        .filter(x => x[1].mv > 0 || x[1].cost > 0)
+        .map(([label,o]) => {
+          const r = ret(o.mv,o.cost); const rCls = r==null?"":(r>=0?"pl-up":"pl-down");
+          return `<tr><td>${label}</td>
+            <td class="r num">${fmtN(o.cost)}<div class="muted" style="font-size:.7rem">${pctC(o.cost)}</div></td>
+            <td class="r num">${fmtN(o.mv)}<div class="muted" style="font-size:.7rem">${pctM(o.mv)}</div></td>
+            <td class="r num ${rCls}">${r==null?"—":(r>=0?"+":"")+pct1(r)}</td></tr>`;
+        }).join("");
+      let analysis;
+      const cL=st.long.cost, cT=st.trend.cost, mL=st.long.mv, mT=st.trend.mv;
+      if(cL > 0 && cT > 0){
+        const rL=(mL-cL)/cL, rT=(mT-cT)/cT, totLT=cL+cT;
+        const actualProfit=(mL-cL)+(mT-cT), actualRet=actualProfit/totLT, fairRet=(rL+rT)/2;
+        const diff=actualProfit-totLT*fairRet, better=diff>=0;
+        analysis = `目前長持／趨勢的<strong>成本</strong>配置為 ${pct1(cL/totLT*100)} ／ ${pct1(cT/totLT*100)}，`
+          + `兩類合計未實現報酬率 ${(actualRet>=0?"+":"")+pct1(actualRet*100)}。`
+          + `若改為各 50% 成本、兩類各維持目前報酬率（長持 ${(rL>=0?"+":"")+pct1(rL*100)}、趨勢 ${(rT>=0?"+":"")+pct1(rT*100)}），`
+          + `合計約 ${(fairRet>=0?"+":"")+pct1(fairRet*100)}。`
+          + `<strong>因此目前配置${better?"優於":"不如"} 50／50</strong>，差異約 ${fmtN(Math.abs(diff))} ${esc(S.settings.baseCurrency)}（${better?"多賺":"少賺"}）。`;
+      }else{
+        analysis = "需長持與趨勢<strong>兩類都有成本</strong>，才能與各 50% 分配比較。";
+      }
       return `<div class="card"><h2>台股：長持 vs 趨勢</h2>
-        ${d.sum > 0 ? `<div class="donut-wrap">${d.svg}${d.legend}</div>
-          <div class="muted" style="margin-top:6px">依直接持有的台股部位分類加總（未套用 ETF 透視）。分類可在「持倉」頁各檔設定。</div>`
-        : `<div class="muted">尚無台股持倉，或持有的台股尚未在「持倉」頁標記長持／趨勢。</div>`}</div>`;
+        ${d.sum > 0 ? `<div class="donut-wrap">${d.svg}${d.legend}</div>` : `<div class="muted">尚無台股持倉，或尚未在「持倉」頁標記分類。</div>`}
+        ${(totCost>0||totMv>0) ? `<div class="tbl-wrap"><table style="margin-top:10px">
+          <tr><th>分類</th><th class="r">成本（佔比）</th><th class="r">市值（佔比）</th><th class="r">報酬率</th></tr>
+          ${trows}</table></div>` : ""}
+        <div class="muted" style="margin-top:8px;line-height:1.6">${analysis}</div>
+        <div class="muted" style="margin-top:6px;font-size:.7rem">說明：以目前持倉未實現損益快照估算，未計入已實現損益、股利、進出場時機與風險；報酬率以剩餘持股加權平均成本為基礎，僅供概略參考。</div>
+      </div>`;
     })()}
     ${(() => {
       const r = twTopHoldings(10);
@@ -1544,6 +1577,7 @@ document.getElementById("privBtn").onclick = () => {
   }
   renderStart();
 })();
+
 
 
 
