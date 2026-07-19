@@ -626,7 +626,9 @@ function transactionForm(acc, instrumentId, tx){
     fld("計價幣別", inp("icur", ins?.currency || acc.currency, "maxlength=8 style='text-transform:uppercase'")) +
     fld("買賣別", sel("side", [["buy","買入"],["sell","賣出"]], tx?.side || "buy")) +
     fld("股數", inp("quantity", tx?.quantity, "inputmode='decimal'")) +
-    fld("成交價（每股，原幣，選填）", inp("price", tx?.price, "inputmode='decimal'")) +
+    fld("單價（每股，原幣）", inp("price", tx?.price, "inputmode='decimal'")) +
+    `<div class="muted" style="margin:2px 0 0">單價與總金額擇一填寫即可，兩者都填則以單價為準。</div>` +
+    fld("或 總金額（原幣）", inp("amount", "", "inputmode='decimal'")) +
     fld("日期", inp("date", tx?.date || todayStr(), "type='date'")) +
     fld("備註（可記錄當時決策）", inp("note", tx?.note)),
     async d => {
@@ -638,18 +640,21 @@ function transactionForm(acc, instrumentId, tx){
       const key = instrKey(d.market, d.symbol);
       let instrument = S.instruments.find(i => i.id === key);
       const priceIn = (d.price === "" || d.price === undefined) ? null : parseFloat(d.price);
-      const hasPrice = priceIn !== null && !isNaN(priceIn);
+      const amtIn = (d.amount === "" || d.amount === undefined) ? null : parseFloat(d.amount);
+      let unitPrice = 0, hasPrice = false;
+      if(priceIn !== null && !isNaN(priceIn)){ unitPrice = priceIn; hasPrice = true; }
+      else if(amtIn !== null && !isNaN(amtIn)){ unitPrice = amtIn / q; hasPrice = true; }
       if(!instrument){
         instrument = {id:key, symbol:d.symbol.toUpperCase().trim(), market:d.market,
           name:d.iname.trim() || d.symbol.toUpperCase().trim(), type:d.itype, currency:d.icur.toUpperCase().trim(),
-          lastPrice: hasPrice ? priceIn : 0, lastPriceDate: hasPrice ? todayStr() : "", priceSource:"manual"};
+          lastPrice: hasPrice ? unitPrice : 0, lastPriceDate: hasPrice ? todayStr() : "", priceSource:"manual"};
       }else{
         instrument = {...instrument, symbol:d.symbol.toUpperCase().trim(), market:d.market,
           name:d.iname.trim() || instrument.name, type:d.itype, currency:d.icur.toUpperCase().trim()};
         // 不覆蓋現價（現價由「貼上更新」或既有資料維護）
       }
       await dbPut("instruments", instrument);
-      const base = {accountId:acc.id, instrumentId:key, side:d.side, quantity:q, price:hasPrice?priceIn:0, date:d.date, note:(d.note||"").trim()};
+      const base = {accountId:acc.id, instrumentId:key, side:d.side, quantity:q, price:hasPrice?unitPrice:0, date:d.date, note:(d.note||"").trim()};
       await putTx(tx ? {...tx, ...base} : {id:uid(), ...base});
       txExpand = key;
     });
@@ -679,7 +684,7 @@ function vPositions(){
       <td class="r num">${fmtN(qty,2)}</td>
       <td class="r num">${fmtN(avg,2)}</td>
       <td class="r num">${fmtN(ins.lastPrice,2)}</td>
-      <td class="r num">${fmtN(mv,2)}</td>
+      <td class="r num">${fmtN(mv)}</td>
       <td class="r num ${plCls}">${pl == null ? "—" : (pl >= 0 ? "+" : "") + fmtN(pl,2)}
         <div style="font-size:.72rem">${plPct == null ? "" : (PRIVACY ? "" : (plPct >= 0 ? "+" : "") + pct1(plPct))}</div></td>
       <td class="r"><button class="btn sm" data-txtoggle="${esc(p.instrumentId)}">${expanded ? "收合" : "明細"}</button></td>
@@ -688,12 +693,13 @@ function vPositions(){
       <div class="row between" style="margin-bottom:6px"><strong style="font-size:.82rem">交易紀錄（${txs.length} 筆）</strong>
         <button class="btn sm primary" data-txadd="${esc(p.instrumentId)}">＋交易</button></div>
       <div class="tbl-wrap"><table>
-        <tr><th>日期</th><th>買賣</th><th class="r">股數</th><th class="r">成交價</th><th>備註</th><th></th></tr>
+        <tr><th>日期</th><th>買賣</th><th class="r">股數</th><th class="r">單價</th><th class="r">金額</th><th>備註</th><th></th></tr>
         ${txs.map(t => `<tr>
           <td class="num">${esc(t.date)}</td>
           <td>${t.side==="sell" ? '<span style="color:var(--pos)">賣</span>' : '<span style="color:var(--danger)">買</span>'}</td>
           <td class="r num">${fmtN(t.quantity,2)}</td>
           <td class="r num">${fmtN(t.price,2)}</td>
+          <td class="r num">${fmtN((Number(t.quantity)||0)*(Number(t.price)||0),0)}</td>
           <td>${esc(t.note||"")}</td>
           <td class="r"><button class="btn sm" data-txedit="${t.id}">編輯</button> <button class="btn sm danger" data-txdel="${t.id}">刪除</button></td>
         </tr>`).join("")}
