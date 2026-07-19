@@ -105,6 +105,14 @@ header.app .toprow{display:flex; justify-content:space-between; align-items:cent
 .pl-up{color:var(--danger); font-weight:600;}
 .pl-down{color:var(--pos); font-weight:600;}
 body.privacy input.inline-num{filter:blur(6px);}
+
+.tbl-wrap.frozen{ max-height:68vh; overflow:auto; }
+.tbl-wrap.frozen > table > tbody > tr > th{
+  position:sticky; top:0; z-index:3; background:var(--card);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.badge.tag-long{ background:#e3f0fb; color:#2c6bb3; }
+.badge.tag-trend{ background:#fdf1dd; color:#9a6a12; }
 </style>
 </head>
 <body>
@@ -614,7 +622,13 @@ function vAccounts(){
 /* ============ 持倉（交易紀錄制） ============ */
 let posAccSel = null;
 let txExpand = null;
+let posFilter = "all";
 
+function tagBadge(tag){
+  if(tag === "long") return '<span class="badge tag-long">長持</span>';
+  if(tag === "trend") return '<span class="badge tag-trend">趨勢</span>';
+  return '<span class="badge grey">未分類</span>';
+}
 function transactionForm(acc, instrumentId, tx){
   const ins = instrumentId ? S.instruments.find(i => i.id === instrumentId)
             : (tx ? S.instruments.find(i => i.id === tx.instrumentId) : null);
@@ -665,7 +679,12 @@ function vPositions(){
   if(hAccs.length === 0){ $("#main").innerHTML = `<div class="card muted">尚無持倉型帳戶。到「帳戶」頁新增，型態選「持倉型」。</div>`; return; }
   if(!posAccSel || !hAccs.find(a => a.id === posAccSel)) posAccSel = hAccs[0].id;
   const acc = hAccs.find(a => a.id === posAccSel);
-  const poss = S.positions.filter(p => p.accountId === acc.id);
+  const allPoss = S.positions.filter(p => p.accountId === acc.id);
+  const poss = allPoss.filter(p => {
+    if(posFilter === "all") return true;
+    const ins = S.instruments.find(i => i.id === p.instrumentId);
+    return ins && ins.tag === posFilter;
+  });
   const rows = poss.map(p => {
     const ins = S.instruments.find(i => i.id === p.instrumentId) || {};
     const qty = Number(p.quantity) || 0;
@@ -681,6 +700,10 @@ function vPositions(){
     return `<tr>
       <td>${esc(ins.symbol)} <span class="badge grey">${esc(ins.market)}</span>${ins.type==="etf"?' <span class="badge">ETF</span>':""}</td>
       <td>${esc(ins.name)}</td>
+      <td>${tagBadge(ins.tag)}<br><select class="tagsel" data-ins="${esc(p.instrumentId)}" style="font:inherit;font-size:.72rem;padding:2px 4px;border:1px solid var(--line);border-radius:6px;margin-top:2px">
+        <option value="" ${!ins.tag?"selected":""}>未分類</option>
+        <option value="long" ${ins.tag==="long"?"selected":""}>長持</option>
+        <option value="trend" ${ins.tag==="trend"?"selected":""}>趨勢</option></select></td>
       <td class="r num">${fmtN(qty,2)}</td>
       <td class="r num">${fmtN(avg,2)}</td>
       <td class="r num">${fmtN(ins.lastPrice,2)}</td>
@@ -689,7 +712,7 @@ function vPositions(){
         <div style="font-size:.72rem">${plPct == null ? "" : (PRIVACY ? "" : (plPct >= 0 ? "+" : "") + pct1(plPct))}</div></td>
       <td class="r"><button class="btn sm" data-txtoggle="${esc(p.instrumentId)}">${expanded ? "收合" : "明細"}</button></td>
     </tr>
-    ${expanded ? `<tr><td colspan="8" style="background:#f7f8f9;padding:8px">
+    ${expanded ? `<tr><td colspan="9" style="background:#f7f8f9;padding:8px">
       <div class="row between" style="margin-bottom:6px"><strong style="font-size:.82rem">交易紀錄（${txs.length} 筆）</strong>
         <button class="btn sm primary" data-txadd="${esc(p.instrumentId)}">＋交易</button></div>
       <div class="tbl-wrap"><table>
@@ -711,12 +734,24 @@ function vPositions(){
         ${hAccs.map(a => `<option value="${a.id}" ${a.id===posAccSel?"selected":""}>${esc(a.name)}（${esc(a.currency)}）</option>`).join("")}
       </select>
       <span class="row"><button class="btn" id="twseUpd">↻ 貼上更新台股收盤價</button><button class="btn primary" id="addTx">＋新增交易</button></span></div>
-    <div class="card"><div class="tbl-wrap"><table>
-      <tr><th>代號</th><th>名稱</th><th class="r">淨股數</th><th class="r">均價</th><th class="r">現價</th><th class="r">市值</th><th class="r">損益</th><th></th></tr>
-      ${rows || `<tr><td colspan="8" class="muted">此帳戶尚無持倉。按「＋新增交易」記錄第一筆買入。</td></tr>`}
+    <div class="row" style="margin-bottom:10px;gap:6px">
+      <span class="muted" style="font-size:.78rem;align-self:center">篩選：</span>
+      <button class="btn sm ${posFilter==='all'?'primary':''}" data-filter="all">全部</button>
+      <button class="btn sm ${posFilter==='long'?'primary':''}" data-filter="long">長持</button>
+      <button class="btn sm ${posFilter==='trend'?'primary':''}" data-filter="trend">趨勢</button></div>
+    <div class="card"><div class="tbl-wrap frozen"><table>
+      <tr><th>代號</th><th>名稱</th><th>分類</th><th class="r">淨股數</th><th class="r">均價</th><th class="r">現價</th><th class="r">市值</th><th class="r">損益</th><th></th></tr>
+      ${rows || `<tr><td colspan="9" class="muted">此帳戶尚無持倉。按「＋新增交易」記錄第一筆買入。</td></tr>`}
     </table></div></div>
     <div class="muted">數量與均價由交易紀錄自動加總（加權平均成本）。點各列「明細」可展開、新增或修改交易，回顧當時決策。</div>`;
   $("#posAcc").onchange = e => { posAccSel = e.target.value; txExpand = null; refresh(); };
+  document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { posFilter = b.dataset.filter; refresh(); });
+  document.querySelectorAll(".tagsel").forEach(sel => sel.onchange = async () => {
+    const ins = S.instruments.find(i => i.id === sel.dataset.ins);
+    if(!ins) return;
+    ins.tag = sel.value || null;
+    await dbPut("instruments", ins); await refresh();
+  });
   $("#addTx").onclick = () => transactionForm(acc, null, null);
   const tb = $("#twseUpd"); if(tb) tb.onclick = () => openPriceUpdate();
   document.querySelectorAll("[data-txtoggle]").forEach(b => b.onclick = () => { txExpand = (txExpand === b.dataset.txtoggle) ? null : b.dataset.txtoggle; refresh(); });
@@ -739,7 +774,7 @@ function vExposure(){
   $("#main").innerHTML = missingBanner(ex.missing) + `
     <div class="card"><h2>個股曝險（look-through，${esc(S.settings.baseCurrency)}）</h2>
     <div class="muted" style="margin-bottom:8px">直接持股＋透過ETF間接持有的合計。ETF成分未涵蓋的權重歸入「其他／現金殘差」。</div>
-    <div class="tbl-wrap"><table>
+    <div class="tbl-wrap frozen"><table>
       <tr><th>代號</th><th>名稱／來源</th><th class="r">曝險金額</th><th class="r">占比</th></tr>
       ${rows || `<tr><td colspan="4" class="muted">尚無持倉資料。</td></tr>`}
       ${ex.denom > 0 ? `<tr><td colspan="2"><strong>合計</strong></td><td class="r num"><strong>${fmtN(ex.denom)}</strong></td><td class="r num">100.0%</td></tr>` : ""}
@@ -783,7 +818,7 @@ function vAlloc(){
     <div class="row between" style="margin-bottom:10px">
       <span class="muted">提醒門檻：±${th}%（可於「設定」調整）｜目標合計：<span class="num">${pct1(tSum)}</span>${Math.abs(tSum-100) > 0.01 ? ' <span class="badge red">未等於100%</span>' : ""}</span>
       <button class="btn primary" id="addTarget">＋目標</button></div>
-    <div class="card"><div class="tbl-wrap"><table>
+    <div class="card"><div class="tbl-wrap frozen"><table>
       <tr><th>代號</th><th class="r">目標%</th><th class="r">實際%</th><th class="r">差距</th><th class="r">建議調整（${esc(S.settings.baseCurrency)}）</th><th></th></tr>
       ${rows.map(r => `<tr ${r.flag ? 'style="background:var(--danger-soft)"' : ""}>
         <td>${esc(r.sym)} <span class="badge grey">${esc(r.mkt)}</span><div class="muted">${esc(r.name)}</div></td>
