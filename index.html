@@ -137,6 +137,7 @@ body.privacy input.inline-num{filter:blur(6px);}
 </dialog>
 <script>
 
+
 "use strict";
 /* ============ 基本工具 ============ */
 const $ = s => document.querySelector(s);
@@ -1018,8 +1019,8 @@ const IMPORTS = {
     }
   },
   positions: {
-    label:"交易紀錄（買賣）", headers:["帳戶","代號","市場","名稱","類型","買賣","股數","單價","日期","備註","現價"],
-    sample:['台股持倉,2330,TW,台積電,stock,買,1000,580,2026-01-10,首建,1085', '台股持倉,2330,TW,台積電,stock,賣,500,600,2026-06-01,部分獲利,1085', '美股持倉,VOO,US,Vanguard S&P 500,etf,買,20,380.5,2026-02-01,,560.2'],
+    label:"交易紀錄（買賣）", headers:["帳戶","代號","市場","名稱","類型","買賣","股數","總成本","日期","備註","現價"],
+    sample:['台股持倉,2330,TW,台積電,stock,買,1000,580000,2026-01-10,首建,1085', '台股持倉,2330,TW,台積電,stock,賣,500,300000,2026-06-01,部分獲利,1085', '美股持倉,VOO,US,Vanguard S&P 500,etf,買,20,7610,2026-02-01,,560.2'],
     note:"每一列是一筆交易（買或賣）。此匯入為『新增交易』，重複匯入同一檔會重複新增，請勿重複匯入同一批。持倉數量與均價會由交易自動加總。",
     validate(r){
       const e = {};
@@ -1029,7 +1030,7 @@ const IMPORTS = {
       if(!["stock","etf","crypto","other"].includes((r["類型"]||"").toLowerCase())) e["類型"] = "需為 stock/etf/crypto/other";
       if(!/買|賣|buy|sell/i.test(r["買賣"]||"")) e["買賣"] = "需為 買/賣（或 buy/sell）";
       if(num(r["股數"]) === null || num(r["股數"]) <= 0) e["股數"] = "需為正數";
-      if(r["單價"] && num(r["單價"]) === null) e["單價"] = "需為數字";
+      if(r["總成本"] && num(r["總成本"]) === null) e["總成本"] = "需為數字";
       if(!/^\d{4}-\d{1,2}-\d{1,2}$/.test((r["日期"]||"").trim())) e["日期"] = "格式 YYYY-MM-DD";
       if(r["現價"] && num(r["現價"]) === null) e["現價"] = "需為數字";
       return e;
@@ -1039,13 +1040,15 @@ const IMPORTS = {
       for(const r of rows){
         const acc = S.accounts.find(a => a.kind === "holding" && a.name === r["帳戶"].trim());
         const mkt = r["市場"].toUpperCase(), sym = r["代號"].toUpperCase().trim(), key = instrKey(mkt, sym);
-        const price = num(r["單價"]);
+        const q = num(r["股數"]);
+        const totalCost = num(r["總成本"]);
+        const price = (totalCost != null && q && q > 0) ? totalCost / q : 0;
         const cur = num(r["現價"]);
         let ins = S.instruments.find(i => i.id === key);
         if(!ins){
           ins = {id:key, symbol:sym, market:mkt, name:(r["名稱"]||"").trim() || sym,
             type:r["類型"].toLowerCase(), currency:acc.currency,
-            lastPrice: cur != null ? cur : (price != null ? price : 0),
+            lastPrice: cur != null ? cur : (totalCost != null ? price : 0),
             lastPriceDate: (cur != null || price != null) ? todayStr() : "", priceSource:"csv"};
         }else{
           ins = {...ins, name:(r["名稱"]||"").trim() || ins.name, type:r["類型"].toLowerCase()};
@@ -1055,7 +1058,7 @@ const IMPORTS = {
         if(ii >= 0) S.instruments[ii] = ins; else S.instruments.push(ins);
         const side = /賣|sell/i.test(r["買賣"]) ? "sell" : "buy";
         S.transactions.push({id:uid(), accountId:acc.id, instrumentId:key, side,
-          quantity:num(r["股數"]), price: price != null ? price : 0, date:r["日期"].trim(), note:(r["備註"]||"").trim()});
+          quantity:q, price:price, date:r["日期"].trim(), note:(r["備註"]||"").trim()});
         n++;
       }
       rebuildPositions(); markDirty();
@@ -1541,6 +1544,7 @@ document.getElementById("privBtn").onclick = () => {
   }
   renderStart();
 })();
+
 
 
 </script>
